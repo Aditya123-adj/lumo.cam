@@ -1,0 +1,1370 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Lumo Camera</title>
+<style>
+:root{
+  --accent:#ffd60a; --rec:#ff453a;
+  --edge:rgba(255,255,255,.32); --dim:rgba(255,255,255,.62);
+  --safe-top:env(safe-area-inset-top,0px); --safe-bot:env(safe-area-inset-bottom,0px);
+  --ease:cubic-bezier(.2,.9,.25,1.05);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;color:#fff;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Noto Sans",sans-serif;
+  overscroll-behavior:none;touch-action:none;user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+[hidden]{display:none!important}
+svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;display:block}
+
+/* Liquid glass: blur + saturation lift + specular rim + top sheen */
+.glass{
+  position:relative;isolation:isolate;
+  background:linear-gradient(145deg,rgba(255,255,255,.20),rgba(255,255,255,.05) 55%,rgba(255,255,255,.12));
+  -webkit-backdrop-filter:blur(22px) saturate(2.1) brightness(1.1);backdrop-filter:blur(22px) saturate(2.1) brightness(1.1);
+  border:1px solid var(--edge);
+  box-shadow:inset 1.5px 1.5px 1px rgba(255,255,255,.55),inset -1px -1px 1px rgba(255,255,255,.22),inset 0 0 18px rgba(255,255,255,.07),0 10px 30px rgba(0,0,0,.32);
+}
+.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;
+  background:radial-gradient(120% 90% at 16% 0%,rgba(255,255,255,.36),rgba(255,255,255,0) 46%),linear-gradient(to top,rgba(255,255,255,.10),rgba(255,255,255,0) 40%)}
+
+#app{position:fixed;inset:0;background:#000;overflow:hidden}
+#stage{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:#0b0b0d;transition:opacity .18s linear;will-change:opacity}
+#stage.swap{opacity:.55}
+#vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;will-change:transform,filter;background:#000}
+#pCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#blurLayer{position:absolute;inset:0;pointer-events:none;
+  -webkit-backdrop-filter:blur(var(--bl,8px));backdrop-filter:blur(var(--bl,8px));
+  -webkit-mask-image:radial-gradient(ellipse var(--rx,38%) var(--ry,30%) at var(--fx,50%) var(--fy,46%),transparent 58%,#000 100%);
+  mask-image:radial-gradient(ellipse var(--rx,38%) var(--ry,30%) at var(--fx,50%) var(--fy,46%),transparent 58%,#000 100%);
+  transition:--fx .5s cubic-bezier(.2,.9,.25,1.05),--fy .5s cubic-bezier(.2,.9,.25,1.05),--rx .4s,--ry .4s}
+#gridLines{position:absolute;inset:0;pointer-events:none;
+  background:
+   linear-gradient(to right,transparent calc(33.33% - .5px),rgba(255,255,255,.4) calc(33.33% - .5px),rgba(255,255,255,.4) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(255,255,255,.4) calc(66.66% - .5px),rgba(255,255,255,.4) calc(66.66% + .5px),transparent calc(66.66% + .5px)),
+   linear-gradient(to bottom,transparent calc(33.33% - .5px),rgba(255,255,255,.4) calc(33.33% - .5px),rgba(255,255,255,.4) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(255,255,255,.4) calc(66.66% - .5px),rgba(255,255,255,.4) calc(66.66% + .5px),transparent calc(66.66% + .5px))}
+#level{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none}
+#level i{position:absolute;left:-70px;top:-1px;width:140px;height:2px;border-radius:2px;background:rgba(255,255,255,.85);transition:background .2s,width .2s,left .2s}
+#level.ok i{background:var(--accent);width:180px;left:-90px}
+#level b{position:absolute;left:-150px;top:-1px;width:300px;height:2px;background:rgba(255,255,255,.25)}
+#poseWrap{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+#poseImg{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;transform-origin:50% 50%;will-change:transform,opacity}
+#focusBox{position:absolute;width:74px;height:74px;margin:-37px 0 0 -37px;border:1.5px solid var(--accent);border-radius:6px;
+  pointer-events:none;opacity:0;transform:scale(1.4);transition:opacity .2s,transform .25s var(--ease)}
+#focusBox.on{opacity:1;transform:scale(1)}
+#focusBox.fade{opacity:0;transition:opacity .6s .8s}
+#expo{position:absolute;width:26px;height:120px;margin:-60px 0 0 52px;pointer-events:none;opacity:0;transition:opacity .2s}
+#expo.on{opacity:1}
+#expo .tr{position:absolute;left:12px;top:0;bottom:0;width:2px;background:rgba(255,214,10,.5);border-radius:2px}
+#expo .kn{position:absolute;left:3px;width:20px;height:20px;border-radius:50%;background:var(--accent);margin-top:-10px;color:#000;display:grid;place-items:center}
+#expo .kn svg{width:14px;height:14px}
+#lockTag{position:absolute;left:50%;top:14px;transform:translateX(-50%);padding:6px 14px;border-radius:99px;background:var(--accent);color:#000;font-size:12px;font-weight:700;letter-spacing:.06em}
+#depthChip{position:absolute;right:12px;top:12px;height:34px;padding:0 13px;border-radius:99px;display:flex;align-items:center;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+#depthChip.on{color:var(--accent)}
+#flashAnim{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+#flashAnim.go{animation:blink .28s ease-out}
+@keyframes blink{0%{opacity:.85}100%{opacity:0}}
+#count{position:absolute;inset:0;display:grid;place-items:center;font-size:120px;font-weight:200;pointer-events:none;text-shadow:0 4px 30px rgba(0,0,0,.5)}
+#recTag{position:absolute;left:50%;top:calc(var(--safe-top) + 62px);transform:translateX(-50%);z-index:5;
+  padding:6px 14px;border-radius:99px;background:var(--rec);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;display:flex;gap:8px;align-items:center}
+#recTag i{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.25}}
+
+/* top */
+#top{position:absolute;left:0;right:0;top:0;padding:calc(var(--safe-top) + 10px) 14px 0;display:flex;justify-content:space-between;align-items:center;z-index:6;pointer-events:none}
+#top .grp{display:flex;gap:10px;pointer-events:auto;min-width:96px}
+#top .grp.r{justify-content:flex-end}
+.rb{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;transition:transform .2s var(--ease),background .2s,color .2s}
+.rb:active{transform:scale(.9)}
+.rb.on{color:var(--accent)}
+#chev{pointer-events:auto}
+#chev svg{transition:transform .3s var(--ease)}
+#chev.open svg{transform:rotate(180deg)}
+
+/* bottom */
+#bottom{position:absolute;left:0;right:0;bottom:0;z-index:6;padding:0 14px calc(var(--safe-bot) + 12px);display:flex;flex-direction:column;gap:11px;align-items:center;
+  background:linear-gradient(to top,rgba(0,0,0,.55),rgba(0,0,0,0))}
+.panel{width:100%;border-radius:26px;padding:10px;animation:rise .35s var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;touch-action:pan-x;padding:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;padding:9px 15px;border-radius:99px;font-size:13px;font-weight:700;color:var(--dim);background:rgba(255,255,255,.08);transition:all .2s}
+.chip.on{background:var(--accent);color:#000}
+.fchip{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--dim);width:62px}
+.fchip .sw{width:54px;height:54px;border-radius:16px;border:2px solid transparent;transition:border-color .2s,transform .2s}
+.fchip.round .sw{border-radius:50%}
+.fchip.on{color:var(--accent)}.fchip.on .sw{border-color:var(--accent);transform:scale(1.06)}
+#subStrip{justify-content:center;padding:6px;width:auto}
+#lightName{text-align:center;font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px;letter-spacing:.03em}
+
+/* expanded controls (iPhone style) */
+#ctrl{width:100%;display:flex;flex-direction:column;gap:9px;align-items:center}
+#ctrlBar{display:flex;justify-content:space-between;width:100%;border-radius:99px;padding:5px 8px;animation:rise .3s var(--ease)}
+.cb{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:#fff;transition:all .25s var(--ease)}
+.cb.val{color:var(--accent)}
+.cb.sel{background:rgba(255,255,255,.22);transform:scale(1.08)}
+#ctrlSub{width:100%;border-radius:22px;padding:10px 12px;animation:rise .3s var(--ease)}
+.seg{display:flex;background:rgba(255,255,255,.12);border-radius:99px;padding:3px;gap:2px}
+.seg button{flex:1;padding:8px 12px;border-radius:99px;font-size:13px;font-weight:700;color:var(--dim);white-space:nowrap}
+.seg button.on{background:rgba(255,255,255,.92);color:#000}
+.seg.yel button.on{background:var(--accent)}
+
+#lensWrap{position:relative;display:flex;justify-content:center}
+#lens{display:flex;gap:4px;padding:5px;border-radius:99px;touch-action:none}
+.lb{min-width:40px;height:34px;padding:0 8px;border-radius:99px;font-size:12.5px;font-weight:700;display:grid;place-items:center;transition:all .25s var(--ease)}
+.lb.on{background:rgba(0,0,0,.55);color:var(--accent);min-width:50px;transform:scale(1.08)}
+#dial{position:absolute;left:50%;bottom:calc(100% + 6px);width:min(360px,calc(100vw - 20px));margin-left:calc(min(360px,calc(100vw - 20px)) / -2);height:110px;opacity:0;pointer-events:none;transform:translateY(10px) scale(.96);transition:opacity .2s,transform .3s var(--ease);touch-action:none}
+#dial.on{opacity:1;transform:none;pointer-events:auto}
+#dial svg{position:relative;width:100%;height:100%;overflow:visible}
+#dialBg{position:absolute;inset:0;border-radius:60px 60px 30px 30px;opacity:.95}
+
+#shutterRow{width:100%;display:flex;align-items:center;justify-content:space-between;padding:0 14px}
+#galBtn{width:54px;height:54px;border-radius:14px;overflow:hidden;display:grid;place-items:center;transition:transform .2s var(--ease)}
+#galBtn:active{transform:scale(.92)}
+#galBtn img,#galBtn video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#flipBtn{width:54px;height:54px;border-radius:50%;display:grid;place-items:center}
+#flipBtn svg{transition:transform .5s var(--ease)}
+#shutter{width:78px;height:78px;border-radius:50%;border:4px solid #fff;display:grid;place-items:center;transition:transform .15s var(--ease);touch-action:none}
+#shutter:active,#shutter.down{transform:scale(.93)}
+#shutter .in{width:62px;height:62px;border-radius:50%;background:#fff;transition:all .25s var(--ease)}
+#shutter.video .in{background:var(--rec)}
+#shutter.rec .in{width:30px;height:30px;border-radius:9px;background:var(--rec)}
+#shutter.hold .in{background:var(--rec);transform:scale(.8)}
+
+/* mode capsule: the bubble is a SIBLING of the glass base, so its own backdrop-filter really sees the camera behind it */
+#capsule{position:relative;display:flex;border-radius:99px;padding:4px;touch-action:none;width:min(300px,100%)}
+#capBg{position:absolute;inset:0;border-radius:99px}
+#hl{position:absolute;left:4px;top:4px;bottom:4px;width:calc((100% - 8px)/3);border-radius:99px;
+  background:rgba(255,255,255,.16);
+  -webkit-backdrop-filter:blur(3px) brightness(1.35) saturate(1.9);backdrop-filter:blur(3px) brightness(1.35) saturate(1.9);
+  border:1px solid rgba(255,255,255,.55);
+  box-shadow:inset 2px 2px 3px rgba(255,255,255,.7),inset -2px -3px 6px rgba(255,255,255,.28),0 6px 18px rgba(0,0,0,.35);
+  transition:transform .45s var(--ease),scale .3s var(--ease);will-change:transform;z-index:1}
+#capsule.holding #hl{scale:1.16 1.38;
+  -webkit-backdrop-filter:url(#lgr) blur(2px) brightness(1.45) saturate(2.2);backdrop-filter:url(#lgr) blur(2px) brightness(1.45) saturate(2.2);
+  box-shadow:inset 2px 2px 4px rgba(255,255,255,.85),inset -3px -4px 8px rgba(255,255,255,.35),0 12px 30px rgba(0,0,0,.45);transition:scale .3s var(--ease)}
+.md{position:relative;flex:1;height:38px;display:grid;place-items:center;font-size:13.5px;font-weight:700;letter-spacing:.02em;color:var(--dim);transition:color .25s;z-index:2}
+.md.on{color:var(--accent)}
+
+/* pose panel */
+.row{display:flex;align-items:center;gap:10px}
+.sl{flex:1;-webkit-appearance:none;appearance:none;height:30px;background:transparent;touch-action:pan-x;min-width:0}
+.sl::-webkit-slider-runnable-track{height:5px;border-radius:5px;background:rgba(255,255,255,.28)}
+.sl::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;margin-top:-10.5px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.sl::-moz-range-track{height:5px;border-radius:5px;background:rgba(255,255,255,.28)}
+.sl::-moz-range-thumb{width:26px;height:26px;border:0;border-radius:50%;background:#fff}
+.lab{font-size:11px;font-weight:700;color:var(--dim);width:56px;letter-spacing:.05em;flex:0 0 auto}
+.val{font-size:13px;font-weight:700;width:46px;text-align:right;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.sm{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,.1);flex:0 0 auto}
+.sm.on{background:var(--accent);color:#000}
+.pth{flex:0 0 auto;width:46px;height:46px;border-radius:12px;overflow:hidden;border:2px solid transparent;background:#222}
+.pth img{width:100%;height:100%;object-fit:cover}
+.pth.on{border-color:var(--accent)}
+
+/* settings: iPhone grouped list */
+#scrim{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .25s}
+#scrim.on{opacity:1;pointer-events:auto}
+#sheet{position:fixed;left:10px;right:10px;bottom:calc(var(--safe-bot) + 10px);z-index:21;border-radius:32px;padding:10px 16px 18px;max-height:82vh;overflow-y:auto;touch-action:pan-y;
+  transform:translateY(120%);transition:transform .45s var(--ease)}
+#sheet.on{transform:none}
+#sheet .grab{width:38px;height:5px;border-radius:5px;background:rgba(255,255,255,.4);margin:2px auto 8px}
+#sheet h3{margin:0 0 4px;font-size:22px;font-weight:700}
+#sheet h4{margin:16px 6px 7px;font-size:12px;font-weight:600;color:var(--dim);letter-spacing:.07em;text-transform:uppercase}
+.group{background:rgba(255,255,255,.1);border-radius:18px;overflow:hidden}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:15px;gap:12px;min-height:48px}
+.srow+.srow{border-top:1px solid rgba(255,255,255,.12)}
+.srow small{display:block;color:var(--dim);font-size:12px;margin-top:2px}
+.tog{width:52px;height:31px;border-radius:99px;background:rgba(255,255,255,.22);position:relative;flex:0 0 auto;transition:background .25s}
+.tog::after{content:"";position:absolute;left:3px;top:3px;width:25px;height:25px;border-radius:50%;background:#fff;transition:transform .3s var(--ease)}
+.tog.on{background:#32d74b}.tog.on::after{transform:translateX(21px)}
+
+/* gallery */
+#gallery{position:fixed;inset:0;z-index:30;background:#000;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .45s var(--ease)}
+#gallery.on{transform:none}
+#gHead{display:flex;justify-content:space-between;align-items:center;padding:calc(var(--safe-top) + 12px) 14px 10px;font-weight:700;font-size:18px}
+#gGrid{flex:1;overflow-y:auto;touch-action:pan-y;display:grid;grid-template-columns:repeat(3,1fr);gap:2px;align-content:start;padding-bottom:30px}
+.gi{position:relative;aspect-ratio:1;background:#151515;overflow:hidden}
+.gi img,.gi video{width:100%;height:100%;object-fit:cover;display:block}
+.gi .bd{position:absolute;left:5px;bottom:5px;font-size:10px;font-weight:800;letter-spacing:.06em;padding:3px 7px;border-radius:99px;background:rgba(0,0,0,.55)}
+#gEmpty{grid-column:1/-1;text-align:center;color:var(--dim);padding:80px 20px;font-size:15px;line-height:1.6}
+#viewer{position:fixed;inset:0;z-index:40;background:#000;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .25s}
+#viewer.on{opacity:1;pointer-events:auto}
+#vMedia{flex:1;display:grid;place-items:center;min-height:0;touch-action:none}
+#vMedia img,#vMedia video{max-width:100%;max-height:100%;object-fit:contain}
+#vBar{display:flex;justify-content:space-around;padding:12px 14px calc(var(--safe-bot) + 14px)}
+#vTop{position:absolute;left:14px;top:calc(var(--safe-top) + 12px);z-index:2}
+#vTag{position:absolute;right:14px;top:calc(var(--safe-top) + 20px);font-size:11px;font-weight:800;letter-spacing:.08em;padding:4px 9px;border-radius:99px;background:rgba(255,255,255,.2)}
+
+#toast{position:fixed;left:50%;top:calc(var(--safe-top) + 118px);transform:translate(-50%,-20px);z-index:50;padding:10px 18px;border-radius:99px;font-size:13.5px;font-weight:600;
+  opacity:0;pointer-events:none;transition:all .35s var(--ease);max-width:88vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#busy{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.6);display:grid;place-items:center;font-size:16px;font-weight:600;text-align:center;line-height:1.7}
+#err{position:fixed;inset:0;z-index:70;background:#000;display:grid;place-items:center;text-align:center;padding:30px;line-height:1.7}
+#err button{margin-top:18px;padding:13px 28px;border-radius:99px;background:var(--accent);color:#000;font-weight:800}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}
+
+/* ---- iOS-style motion & liquid glass polish ---- */
+@property --fx{syntax:'<percentage>';inherits:true;initial-value:50%}
+@property --fy{syntax:'<percentage>';inherits:true;initial-value:46%}
+@property --rx{syntax:'<percentage>';inherits:true;initial-value:38%}
+@property --ry{syntax:'<percentage>';inherits:true;initial-value:30%}
+:root{--spring:cubic-bezier(.34,1.56,.64,1)}
+button,.chip,.fchip,.md{transition-timing-function:var(--spring)}
+button:active,.glass:active{transform:scale(.92)}
+.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;opacity:0;
+  background:radial-gradient(90px 90px at var(--mx,50%) var(--my,0%),rgba(255,255,255,.55),rgba(255,255,255,0) 70%);transition:opacity .35s}
+.glass.touch::after{opacity:1}
+#app{animation:appin .7s var(--ease) both}
+@keyframes appin{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
+#blurLayer.rack{animation:rack .6s var(--ease)}
+@keyframes rack{0%{-webkit-backdrop-filter:blur(calc(var(--bl,8px)*2.2));backdrop-filter:blur(calc(var(--bl,8px)*2.2))}100%{}}
+@keyframes chipin{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+#focusBox.on{animation:fpulse .5s var(--spring)}
+@keyframes fpulse{from{transform:scale(1.5)}to{transform:scale(1)}}
+#shutter{position:relative}
+#shutter .ring{position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(255,255,255,.8);animation:ring .55s ease-out forwards;pointer-events:none}
+@keyframes ring{to{transform:scale(1.5);opacity:0}}
+.fchip.on .sw{transform:scale(1.1);box-shadow:0 0 0 2px var(--accent),0 6px 18px rgba(0,0,0,.4)}
+.gi{animation:rise .4s var(--spring) both}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* open/close morph animations (grow & shrink like the mode capsule) */
+.pop-in{transform-origin:50% 100%;animation:popin .45s var(--spring) both}
+.pop-out{transform-origin:50% 100%;animation:popout .27s cubic-bezier(.5,0,.9,.4) both;pointer-events:none}
+@keyframes popin{from{opacity:0;transform:scale(.78) translateY(16px)}to{opacity:1;transform:none}}
+@keyframes popout{to{opacity:0;transform:scale(.78) translateY(16px)}}
+#sheet{transform-origin:50% 100%;transform:translateY(60%) scale(.86);opacity:0;pointer-events:none;transition:transform .5s var(--spring),opacity .25s}
+#sheet.on{transform:none;opacity:1;pointer-events:auto}
+#gallery{transform-origin:14% 92%;transform:scale(.08);opacity:0;pointer-events:none;border-radius:40px;transition:transform .55s var(--spring),opacity .25s,border-radius .5s}
+#gallery.on{transform:none;opacity:1;pointer-events:auto;border-radius:0}
+#viewer{transform:scale(.9);transition:opacity .25s,transform .45s var(--spring)}
+#viewer.on{transform:none}
+#dial{transform-origin:50% 100%;transition:opacity .25s,transform .45s var(--spring)}
+#scrim{transition:opacity .35s}
+
+/* ultra liquid glass (water-like refraction, Chromium) + jelly motion */
+.glass{-webkit-backdrop-filter:blur(18px) saturate(2.2) brightness(1.12);backdrop-filter:blur(18px) saturate(2.2) brightness(1.12);border:1px solid rgba(255,255,255,.42)}
+@supports (backdrop-filter:url(#wtr)){.glass{-webkit-backdrop-filter:url(#wtr) blur(7px) saturate(2.4) brightness(1.14);backdrop-filter:url(#wtr) blur(7px) saturate(2.4) brightness(1.14)}}
+html.lgsoft .glass{-webkit-backdrop-filter:blur(18px) saturate(2) brightness(1.1)!important;backdrop-filter:blur(18px) saturate(2) brightness(1.1)!important}
+.jelly{animation:jelly .6s var(--spring)}
+@keyframes jelly{0%{transform:scale(.9)}35%{transform:scale(1.09,.94)}65%{transform:scale(.97,1.04)}100%{transform:none}}
+#shutter.night{background:conic-gradient(var(--accent) calc(var(--np,0)*360deg),rgba(255,255,255,.18) 0)}
+#hist{position:fixed;left:14px;top:calc(var(--safe-top) + 72px);width:96px;height:46px;border-radius:12px;z-index:5;pointer-events:none;display:none}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="lgr" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency=".012 .03" numOctaves="2" seed="4" result="n"/>
+    <feGaussianBlur in="n" stdDeviation="2.5" result="nb"/>
+    <feDisplacementMap in="SourceGraphic" in2="nb" scale="26" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</defs></svg>
+
+<div id="app">
+  <div id="stage">
+    <video id="vid" playsinline muted autoplay></video>
+    <div id="blurLayer" hidden></div>
+    <canvas id="pCanvas" hidden></canvas>
+    <div id="gridLines" hidden></div>
+    <div id="level" hidden><b></b><i></i></div>
+    <div id="poseWrap" hidden><img id="poseImg" alt=""></div>
+    <div id="focusBox"></div>
+    <div id="expo"><div class="tr"></div><div class="kn" id="expoKn"></div></div>
+    <div id="lockTag" hidden>AE/AF LOCK</div>
+    <button id="depthChip" class="glass" hidden></button>
+    <div id="flashAnim"></div>
+    <div id="count" hidden></div>
+  </div>
+  <div id="recTag" hidden><i></i><span id="recTime">00:00</span></div>
+
+  <div id="top">
+    <div class="grp"><button class="rb glass" id="flashBtn" aria-label="Flash"></button></div>
+    <button class="rb glass" id="chev" aria-label="Controls"></button>
+    <div class="grp r"><button class="rb glass" id="liveBtn" aria-label="Live Photo"></button><button class="rb glass" id="setBtn" aria-label="Settings"></button></div>
+  </div>
+
+  <div id="bottom">
+    <div id="ctrl" hidden><div id="ctrlSub" class="glass" hidden></div><div id="ctrlBar" class="glass"></div></div>
+    <div id="depthPanel" class="panel glass" hidden>
+      <div class="row"><span class="lab">DEPTH</span><input class="sl" id="depthSl" type="range" min="0" max="100" value="28"><span class="val" id="depthVal">f 2.8</span></div>
+      <div class="row" style="margin-top:6px"><span class="lab">SUBJECT</span><div class="seg yel" style="flex:1"><button id="subjAuto">Auto</button><button id="subjTap" class="on">Tap se chuno</button></div></div>
+    </div>
+    <div id="lightPanel" class="panel glass" hidden><div id="lightName"></div><div class="chips" id="lightChips"></div></div>
+    <div id="posePanel" class="panel glass" hidden>
+      <div class="row" style="margin-bottom:8px">
+        <button class="sm" id="poseAdd" aria-label="Pose photo chuno"></button>
+        <div class="chips" id="poseThumbs" style="flex:1"></div>
+      </div>
+      <div class="row"><span class="lab">OPACITY</span><input class="sl" id="poseOp" type="range" min="10" max="90" value="35"></div>
+      <div class="row"><span class="lab">SIZE</span><input class="sl" id="poseSc" type="range" min="40" max="220" value="100">
+        <button class="sm" id="poseFlip" aria-label="Flip"></button><button class="sm" id="poseDel" aria-label="Hatao"></button></div>
+    </div>
+    <div id="qChips" class="panel glass" hidden style="padding:7px"><div class="chips" id="qRow"></div></div>
+    <div id="subStrip" class="panel glass" hidden><div class="chips" id="subRow"></div></div>
+    <div id="lensWrap">
+      <div id="dial"><div id="dialBg" class="glass"></div><svg id="dialSvg" viewBox="0 0 360 110"></svg></div>
+      <div id="lens" class="glass"></div>
+    </div>
+    <div id="shutterRow">
+      <button id="galBtn" class="glass" aria-label="Gallery"></button>
+      <button id="shutter" aria-label="Capture"><div class="in"></div></button>
+      <button id="flipBtn" class="glass" aria-label="Camera badlo"></button>
+    </div>
+    <div id="capsule"><div id="capBg" class="glass"></div><div id="hl"></div>
+      <div class="md" data-m="photo">Photo</div><div class="md" data-m="video">Video</div><div class="md" data-m="pose">Pose</div>
+    </div>
+  </div>
+</div>
+
+<div id="scrim"></div>
+<div id="sheet" class="glass">
+  <div class="grab"></div>
+  <h3>Camera</h3>
+  <h4>Formats</h4>
+  <div class="group">
+    <div class="srow"><span>Photo quality<small>Max sensor ki poori size me save karta hai</small></span><div class="seg" id="sPq"><button data-v="max">Max</button><button data-v="bal">Balanced</button></div></div>
+    <div class="srow"><span>Photo ratio</span><div class="seg" id="sAspect"><button data-v="4:3">4:3</button><button data-v="16:9">16:9</button><button data-v="1:1">1:1</button></div></div>
+  </div>
+  <h4>Record Video</h4>
+  <div class="group"><div class="srow" style="display:block"><div class="chips" id="sVq"></div></div></div>
+  <h4>Composition</h4>
+  <div class="group">
+    <div class="srow"><span>Grid</span><div class="tog" id="tGrid"></div></div>
+    <div class="srow"><span>Level<small>Horizon seedha hone par peela ho jata hai</small></span><div class="tog" id="tLevel"></div></div>
+    <div class="srow"><span>Mirror Front Camera<small>Selfie preview jaisi hi save hogi</small></span><div class="tog" id="tMirror"></div></div>
+  </div>
+  <h4>Sounds and Haptics</h4>
+  <div class="group">
+    <div class="srow"><span>Shutter sound</span><div class="tog" id="tSound"></div></div>
+    <div class="srow"><span>Haptics</span><div class="tog" id="tHaptic"></div></div>
+  </div><h4>More settings</h4><div class="group">
+    <div class="srow"><span>Liquid glass<small>Ultra = pani jaisa refraction. Lag lage to band karo</small></span><div class="tog" id="tLg"></div></div>
+    <div class="srow"><span>HDR<small>Shadows ubharta hai, colors balance karta hai</small></span><div class="tog" id="tHdr"></div></div>
+    <div class="srow"><span>Histogram</span><div class="tog" id="tHist"></div></div>
+    <div class="srow"><span>QR code recognition</span><div class="tog" id="tQr"></div></div>
+    <div class="srow"><span>Watermark<small>Photo par text stamp</small></span><div class="tog" id="tWm"></div></div>
+    <div class="srow"><span>Watermark text</span><input id="wmText" maxlength="40" style="width:55%;background:rgba(255,255,255,.12);border:0;border-radius:10px;padding:8px 10px;color:#fff;font:inherit"></div>
+    <div class="srow"><span>Lock white balance</span><div class="tog" id="tWb"></div></div>
+    <div class="srow"><span>Video codec</span><div class="seg" id="sCodec"><button data-v="auto">H.264</button><button data-v="h265">H.265</button></div></div>
+  </div>
+</div>
+
+<div id="gallery">
+  <div id="gHead"><span id="gTitle">Gallery</span><button class="rb glass" id="gClose" aria-label="Band karo"></button></div>
+  <div id="gGrid"></div>
+</div>
+<div id="viewer">
+  <button class="rb glass" id="vTop" aria-label="Wapas"></button>
+  <div id="vTag" hidden></div>
+  <div id="vMedia"></div>
+  <div id="vBar">
+    <button class="rb glass" id="vShare" aria-label="Share"></button>
+    <button class="rb glass" id="vSave" aria-label="Download"></button>
+    <button class="rb glass" id="vDel" aria-label="Delete"></button>
+  </div>
+</div>
+<div id="toast" class="glass"></div>
+<div id="busy" hidden></div>
+<div id="err" hidden></div>
+
+<script>
+"use strict";
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const clamp = (v,a,b) => Math.min(b,Math.max(a,v));
+const sleep = ms => new Promise(r => setTimeout(r,ms));
+const P = d => '<svg class="i" viewBox="0 0 24 24">'+d+'</svg>';
+const IC = {
+  flash:P('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
+  flashOff:P('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/><path d="M3 3l18 18"/>'),
+  flashAuto:P('<path d="M11 2 3 13h6l-1 7 8-11h-6z"/><path d="M17 15l2.5-6 2.5 6M18 13.5h3"/>'),
+  live:P('<circle cx="12" cy="12" r="2.4"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="2 3"/>'),
+  liveOff:P('<circle cx="12" cy="12" r="2.4"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="2 3"/><path d="M3 3l18 18"/>'),
+  chev:P('<path d="M6 15l6-6 6 6"/>'),
+  sliders:P('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
+  timer:P('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>'),
+  aspect:P('<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M8 9v6M16 9v6"/>'),
+  guide:P('<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M9.2 3.5v17M14.8 3.5v17M3.5 9.2h17M3.5 14.8h17"/>'),
+  style:P('<circle cx="9" cy="9" r="5.5"/><circle cx="15.5" cy="9" r="5.5"/><circle cx="12.2" cy="15" r="5.5"/>'),
+  ev:P('<circle cx="12" cy="12" r="9"/><path d="M8 9.5h4M10 7.5v4M13 15.5h4"/>'),
+  flip:P('<path d="M4 9a8 8 0 0 1 14-3l2 2M20 4v4h-4M20 15a8 8 0 0 1-14 3l-2-2M4 20v-4h4"/>'),
+  gallery:P('<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="9" r="1.6"/><path d="M4 18l5-5 4 4 3-3 4 4"/>'),
+  close:P('<path d="M6 6l12 12M18 6L6 18"/>'),
+  back:P('<path d="M15 5l-7 7 7 7"/>'),
+  share:P('<path d="M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>'),
+  save:P('<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'),
+  trash:P('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  add:P('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M12 9v6M9 12h6"/>'),
+  mirror:P('<path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z"/>'),
+  sun:P('<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.8 1.8M17.2 17.2 19 19M5 19l1.8-1.8M17.2 6.8 19 5"/>')
+};
+
+/* ---------- state ---------- */
+const FILTERS = {
+  none:{n:'Standard',css:'',sw:'linear-gradient(135deg,#777,#bbb)'},
+  vivid:{n:'Vibrant',css:'saturate(1.45) contrast(1.08)',sw:'linear-gradient(135deg,#ff3d71,#ffb400)'},
+  rich:{n:'Rich Contrast',css:'contrast(1.28) saturate(1.1) brightness(.96)',sw:'linear-gradient(135deg,#111827,#9ca3af)'},
+  warm:{n:'Warm',css:'sepia(.25) saturate(1.25) hue-rotate(-8deg) brightness(1.04)',sw:'linear-gradient(135deg,#ff9a3c,#ffd27a)'},
+  cool:{n:'Cool',css:'saturate(1.1) hue-rotate(12deg) brightness(1.02) contrast(1.05)',sw:'linear-gradient(135deg,#3b82f6,#7dd3fc)'},
+  mono:{n:'Mono',css:'grayscale(1) contrast(1.1)',sw:'linear-gradient(135deg,#444,#ddd)'},
+  silver:{n:'Silvertone',css:'grayscale(1) contrast(1.05) brightness(1.1)',sw:'linear-gradient(135deg,#9ca3af,#f3f4f6)'},
+  noir:{n:'Noir',css:'grayscale(1) contrast(1.5) brightness(.9)',sw:'linear-gradient(135deg,#000,#666)'},
+  fade:{n:'Fade',css:'contrast(.88) brightness(1.1) saturate(.8)',sw:'linear-gradient(135deg,#c9b8d6,#f5e6e0)'},
+  chrome:{n:'Chrome',css:'contrast(1.2) saturate(1.2) brightness(1.02) sepia(.08)',sw:'linear-gradient(135deg,#0f766e,#e5e7eb)'},
+  retro:{n:'Retro',css:'sepia(.55) contrast(1.05) saturate(1.2)',sw:'linear-gradient(135deg,#8a5a2b,#e8c48f)'},
+  drama:{n:'Dramatic',css:'contrast(1.35) saturate(.9) brightness(.92)',sw:'linear-gradient(135deg,#1f2937,#b45309)'}
+};
+/* portrait lighting: subj = look of the subject, bg = what replaces the background */
+const LIGHT = {
+  natural:{n:'Natural Light',subj:'',bg:'blur',sw:'linear-gradient(135deg,#d6d3d1,#78716c)'},
+  studio:{n:'Studio Light',subj:'brightness(1.14) contrast(1.06) saturate(1.05)',bg:'blur',sw:'linear-gradient(135deg,#fff7d6,#fbbf24)'},
+  contour:{n:'Contour Light',subj:'contrast(1.3) brightness(.98) saturate(1.05)',bg:'blur',sw:'linear-gradient(135deg,#7c2d12,#fdba74)'},
+  stage:{n:'Stage Light',subj:'brightness(1.05) contrast(1.12)',bg:'black',sw:'linear-gradient(135deg,#000,#f59e0b)'},
+  stagemono:{n:'Stage Light Mono',subj:'grayscale(1) contrast(1.2)',bg:'black',sw:'linear-gradient(135deg,#000,#e5e7eb)'},
+  highkey:{n:'High-Key Light Mono',subj:'grayscale(1) brightness(1.25) contrast(.95)',bg:'white',sw:'linear-gradient(135deg,#f9fafb,#9ca3af)'},
+  soft:{n:'Soft Light',subj:'brightness(1.08) contrast(.88) saturate(.92) sepia(.06)',bg:'blur',sw:'linear-gradient(135deg,#fbcfe8,#fef3c7)'},
+  vivid:{n:'Vivid',subj:'saturate(1.55) contrast(1.1)',bg:'blur',sw:'linear-gradient(135deg,#ec4899,#22d3ee)'},
+  night:{n:'Night Portrait',subj:'brightness(1.12) contrast(1.06)',bg:'blur',bgc:'brightness(.32) saturate(.8) hue-rotate(14deg) contrast(1.15)',sw:'linear-gradient(135deg,#0f172a,#4338ca)'}
+};
+const VQ = {
+  '4k60':{l:'4K  60',w:3840,h:2160,f:60,br:50e6},
+  '4k30':{l:'4K  30',w:3840,h:2160,f:30,br:35e6},
+  '1080p60':{l:'HD  60',w:1920,h:1080,f:60,br:20e6},
+  '1080p30':{l:'HD  30',w:1920,h:1080,f:30,br:12e6},
+  '720p30':{l:'720p  30',w:1280,h:720,f:30,br:6e6}
+};
+const MODES = ['photo','video','pose'];
+const SUBS = {photo:[['photo','Photo'],['portrait','Portrait'],['night','Night'],['pro','Pro'],['doc','Document'],['square','Square']], video:[['video','Video'],['slow','Slo-mo'],['lapse','Time-lapse']]};
+const S = {
+  mode:'photo', sub:{photo:'photo',video:'video'}, facing:'environment', flash:'off', live:false, timer:0,
+  aspect:'4:3', grid:false, level:false, filter:'none', light:'natural', ev:0, zoom:1, vq:'1080p60', fv:28, sound:true, haptic:true, mirrorSave:false, pq:'max',
+  pose:{url:null,op:.35,sc:1,x:0,y:0,flip:false,id:null}, recording:false
+};
+try{ Object.assign(S, JSON.parse(localStorage.getItem('lumo')||'{}').s||{}); }catch(e){}
+S.mode='photo'; S.recording=false; S.zoom=1; S.filter='none'; S.ev=0; S.pose={url:null,op:.35,sc:1,x:0,y:0,flip:false,id:null};
+if(!VQ[S.vq]) S.vq='1080p60'; if(!LIGHT[S.light]) S.light='natural';
+function persist(){ try{ localStorage.setItem('lumo',JSON.stringify({s:{aspect:S.aspect,grid:S.grid,level:S.level,vq:S.vq,sound:S.sound,haptic:S.haptic,mirrorSave:S.mirrorSave,pq:S.pq,timer:S.timer,facing:S.facing,flash:S.flash,light:S.light,fv:S.fv}})); }catch(e){} }
+const fnum=()=>1.4*Math.pow(16/1.4,S.fv/100);
+
+/* ---------- storage (IndexedDB) ---------- */
+let db;
+function idb(){ return new Promise((res,rej)=>{
+  const r=indexedDB.open('lumo-cam',1);
+  r.onupgradeneeded=()=>{ r.result.createObjectStore('items',{keyPath:'id'}); r.result.createObjectStore('poses',{keyPath:'id'}); };
+  r.onsuccess=()=>{db=r.result;res()}; r.onerror=()=>rej(r.error);
+});}
+const tx=(st,mode,fn)=>new Promise((res,rej)=>{ const t=db.transaction(st,mode); const o=t.objectStore(st); const q=fn(o); t.oncomplete=()=>res(q&&q.result); t.onerror=()=>rej(t.error); });
+const dbPut=(st,v)=>tx(st,'readwrite',o=>o.put(v));
+const dbAll=st=>tx(st,'readonly',o=>o.getAll());
+const dbDel=(st,id)=>tx(st,'readwrite',o=>o.delete(id));
+let items=[]; const urlCache=new Map();
+const urlOf=(it,key='blob')=>{ const k=it.id+key; if(!urlCache.has(k)) urlCache.set(k,URL.createObjectURL(it[key])); return urlCache.get(k); };
+
+/* ---------- ui bits ---------- */
+const vid=$('#vid'), stage=$('#stage');
+function toast(t){ const e=$('#toast'); e.textContent=t; e.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(()=>e.classList.remove('on'),2600); }
+function buzz(n=10){ if(!S.haptic) return; try{navigator.vibrate&&navigator.vibrate(n)}catch(e){} }
+let actx; function click(){ if(!S.sound) return; try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); const o=actx.createOscillator(),g=actx.createGain(); o.type='square'; o.frequency.value=1400; g.gain.setValueAtTime(.06,actx.currentTime); g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+.06); o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+.07);}catch(e){} }
+function paintStaticIcons(){
+  $('#chev').innerHTML=IC.chev; $('#setBtn').innerHTML=IC.sliders; $('#flipBtn').innerHTML=IC.flip;
+  $('#gClose').innerHTML=IC.close; $('#vTop').innerHTML=IC.back; $('#vShare').innerHTML=IC.share; $('#vSave').innerHTML=IC.save; $('#vDel').innerHTML=IC.trash;
+  $('#poseAdd').innerHTML=IC.add; $('#poseFlip').innerHTML=IC.mirror; $('#poseDel').innerHTML=IC.trash;
+  $('#expoKn').innerHTML=IC.sun; $('#galBtn').innerHTML=IC.gallery;
+}
+function paintTop(){
+  $('#flashBtn').innerHTML = S.flash==='off'?IC.flashOff:S.flash==='auto'?IC.flashAuto:IC.flash;
+  $('#flashBtn').classList.toggle('on',S.flash==='on');
+  $('#liveBtn').innerHTML = S.live?IC.live:IC.liveOff;
+  $('#liveBtn').classList.toggle('on',S.live);
+  $('#liveBtn').hidden = !(S.mode==='photo' && S.sub.photo==='photo');
+  $('#flashBtn').hidden = S.facing==='user' && S.mode!=='photo';
+}
+
+/* ---------- effects (filters + exposure) ---------- */
+function evCss(){ return (!(caps&&caps.exposureCompensation)&&S.ev!==0)?`brightness(${Math.pow(2,S.ev*.5).toFixed(3)})`:''; }
+function fcss(){ return [FILTERS[S.filter].css,evCss(),S.hdr?'contrast(1.06) saturate(1.12) brightness(1.03)':'',(S.mode==='photo'&&S.sub.photo==='doc')?'grayscale(1) contrast(1.7) brightness(1.12)':''].filter(Boolean).join(' '); }
+const nightOn=()=>S.mode==='photo'&&S.sub.photo==='night';
+const portraitOn=()=>S.mode==='photo'&&S.sub.photo==='portrait';
+function applyFilterPreview(){
+  const base=fcss();
+  if(portraitOn()&&PORT.run&&PORT.ready) vid.style.filter=[LIGHT[S.light].subj,base].filter(Boolean).join(' ')||'none';
+  else vid.style.filter=[nightOn()?'brightness(1.55) contrast(1.05) saturate(1.1)':'',base].filter(Boolean).join(' ')||'none';
+}
+async function applyEV(){
+  if(caps&&caps.exposureCompensation&&track){ const c=caps.exposureCompensation; const v=clamp(S.ev*(c.max/2),c.min,c.max); try{ await track.applyConstraints({advanced:[{exposureCompensation:v}]}); }catch(e){} }
+  applyFilterPreview();
+}
+
+/* ---------- layout ---------- */
+let stageW=innerWidth, stageH=innerHeight;
+function ratioFor(){
+  if(S.mode==='video') return 9/16;
+  if(S.mode==='photo' && S.sub.photo==='square') return 1;
+  if(S.mode==='photo' && S.sub.photo==='portrait') return 3/4;
+  const a=S.aspect; return a==='4:3'?3/4:a==='16:9'?9/16:1;
+}
+function layout(){
+  const W=innerWidth,H=innerHeight; const r=ratioFor();
+  let w=W,h=W/r; const top=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top'))||0;
+  const t0=top+60; if(h>H){ h=H; w=H*r; }
+  const t=(r<0.6)?Math.max(0,Math.min(t0-8,(H-h)/2)):t0;
+  Object.assign(stage.style,{left:((W-w)/2)+'px',top:t+'px',width:w+'px',height:h+'px'});
+  stageW=w; stageH=h;
+  const pc=$('#pCanvas'); pc.width=Math.min(300,Math.round(w/2)); pc.height=Math.round(pc.width*h/w);
+  updateBlurVar();
+}
+addEventListener('resize',layout);
+
+/* ---------- camera ---------- */
+let stream=null, track=null, ic=null, caps={}, photoCaps=null, hw=null, digital=1, camBusy=false;
+function resFor(){
+  if(S.mode==='video'){
+    if(S.sub.video==='slow') return {w:1920,h:1080,f:240};
+    if(S.sub.video==='lapse') return {w:1920,h:1080,f:30};
+    const q=VQ[S.vq]; return {w:q.w,h:q.h,f:q.f};
+  }
+  const r=ratioFor();
+  if(r===1) return {w:1080,h:1080,f:30};
+  if(r<0.6) return {w:1920,h:1080,f:30};
+  return {w:1600,h:1200,f:30};
+}
+async function startCamera(){
+  if(camBusy) return; camBusy=true;
+  try{
+    stopLiveBuffer(); stopCamera();
+    const q=resFor();
+    const attempts=[
+      {video:{facingMode:{ideal:S.facing},width:{ideal:q.w},height:{ideal:q.h},frameRate:{ideal:q.f}},audio:false},
+      {video:{facingMode:{ideal:S.facing}},audio:false},
+      {video:true,audio:false}
+    ];
+    let err;
+    for(const c of attempts){ try{ stream=await navigator.mediaDevices.getUserMedia(c); err=null; break; }catch(e){ err=e; if(e.name==='NotAllowedError'||e.name==='SecurityError') break; } }
+    if(!stream){ showErr(err); return; }
+    $('#err').hidden=true;
+    vid.srcObject=stream; await vid.play().catch(()=>{});
+    track=stream.getVideoTracks()[0];
+    caps=track.getCapabilities?track.getCapabilities():{};
+    ic=('ImageCapture' in window)?new ImageCapture(track):null; photoCaps=null;
+    if(ic&&ic.getPhotoCapabilities) ic.getPhotoCapabilities().then(p=>photoCaps=p).catch(()=>{});
+    hw=caps.zoom?{min:caps.zoom.min,max:caps.zoom.max}:null;
+    S.zoom=clamp(1,hw?Math.min(hw.min,1):1,10);
+    applyZoom(1); paintLens(); paintTop(); applyEV(); applyFilterPreview();
+    applyVidTransform();
+    if(S.live&&S.mode==='photo') startLiveBuffer();
+  } finally { camBusy=false; }
+}
+function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); } stream=null; track=null; }
+function showErr(e){
+  const el=$('#err'); el.hidden=false;
+  const blocked = e && (e.name==='NotAllowedError');
+  const insecure = !window.isSecureContext;
+  el.innerHTML='<div><div style="font-size:20px;font-weight:700;margin-bottom:8px">Camera shuru nahi hua</div><div style="color:var(--dim);max-width:320px">'+
+   (insecure?'Ye page https:// par khulna chahiye. File seedha phone me kholne se camera allow nahi hota. Hosting steps follow karo.':
+    blocked?'Camera ki permission band hai. Address bar me lock icon dabao, Camera ko Allow karo, phir dobara try karo.':
+    'Camera nahi mila ya koi aur app use kar rahi hai. Baaki camera apps band karke dobara try karo.')+'</div><button id="retry">Dobara try karo</button></div>';
+  $('#retry').onclick=()=>startCamera();
+}
+async function applyRes(){
+  if(!track) return startCamera();
+  const q=resFor();
+  try{
+    await track.applyConstraints({width:{ideal:q.w},height:{ideal:q.h},frameRate:{ideal:q.f}});
+    const st=track.getSettings();
+    if(S.mode==='video' && S.sub.video==='video'){
+      const want=VQ[S.vq]; const gotF=Math.round(st.frameRate||0);
+      if(gotF && gotF<want.f-3) toast('Is phone par '+want.f+' fps nahi mila, '+gotF+' fps chal raha hai');
+    }
+    paintLens();
+  }catch(e){ await startCamera(); }
+}
+
+/* ---------- zoom ---------- */
+let zPending=null, zBusy=false;
+function applyVidTransform(){
+  const sx=(S.facing==='user')?-1:1;
+  vid.style.transform=`scale(${sx*digital},${digital})`;
+}
+function applyZoom(z){
+  const lo=hw?Math.min(hw.min,1):1;
+  z=clamp(z,lo,10); S.zoom=z;
+  if(hw){ const hz=clamp(z,hw.min,hw.max); digital=z/Math.max(hz,0.0001); if(digital<1) digital=1; queueHw(hz); }
+  else { digital=Math.max(1,z); }
+  applyVidTransform(); paintLens();
+}
+async function queueHw(z){
+  zPending=z; if(zBusy||!track) return; zBusy=true;
+  while(zPending!==null){ const v=zPending; zPending=null; let ok=false; try{ await track.applyConstraints({advanced:[{zoom:v}]}); const a=track.getSettings().zoom; ok=a!=null&&Math.abs(a-v)<=Math.max(.15,v*.1); }catch(e){} if(!ok){ hw=null; zPending=null; try{ track.applyConstraints({advanced:[{zoom:(caps.zoom&&caps.zoom.min)||1}]}).catch(()=>{}); }catch(e){} applyZoom(S.zoom); break; } await new Promise(r=>requestAnimationFrame(r)); }
+  zBusy=false;
+}
+const PRESETS=[0.5,1,2];
+function fmtZ(z){ return (z<10?(Math.round(z*10)/10):Math.round(z))+''; }
+function paintLens(){
+  const el=$('#lens'); const z=S.zoom;
+  let act = z<0.75?0.5: z<1.5?1: 2;
+  const showCur = Math.abs(z-act)>0.06;
+  el.innerHTML=PRESETS.map(p=>{
+    const on=p===act; const t=on&&showCur?fmtZ(z):fmtZ(p);
+    return `<button class="lb ${on?'on':''}" data-z="${p}">${t}${on?'×':''}</button>`;
+  }).join('');
+}
+$('#lens').addEventListener('click',e=>{
+  const b=e.target.closest('.lb'); if(!b||dialDrag) return;
+  const z=parseFloat(b.dataset.z);
+  if(z<1 && !(hw&&hw.min<=0.55)){ toast('Is phone ka browser 0.5× lens allow nahi karta'); return; }
+  smoothZoom(z); buzz(8);
+});
+let zAnim=0;
+function smoothZoom(to){
+  cancelAnimationFrame(zAnim); const from=S.zoom, t0=performance.now(), d=260;
+  const step=t=>{ const k=clamp((t-t0)/d,0,1), e=1-Math.pow(1-k,3); applyZoom(from*Math.pow(to/from,e)); if(k<1) zAnim=requestAnimationFrame(step); else applyZoom(to); };
+  zAnim=requestAnimationFrame(step);
+}
+const dial=$('#dial'); let dialDrag=false, dialTimer=0, dialHide=0;
+const DMIN=()=>hw&&hw.min<=0.55?0.5:1;
+function zToP(z){ const m=DMIN(); return clamp(Math.log(z/m)/Math.log(10/m),0,1); }
+function pToZ(p){ const m=DMIN(); return m*Math.pow(10/m,p); }
+function buildDial(){
+  const R=300,cx=180,cy=335, m=DMIN(); let s='';
+  for(let i=0;i<=60;i++){ const p=i/60; const th=(-30+60*p)*Math.PI/180; const x=cx+R*Math.sin(th), y=cy-R*Math.cos(th);
+    const x2=cx+(R-7)*Math.sin(th), y2=cy-(R-7)*Math.cos(th);
+    s+=`<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="rgba(255,255,255,.45)" stroke-width="1.2"/>`; }
+  (m===0.5?[0.5,1,2,3,5,10]:[1,2,3,5,10]).forEach(v=>{ const p=zToP(v), th=(-30+60*p)*Math.PI/180; const x=cx+R*Math.sin(th), y=cy-R*Math.cos(th);
+    const x2=cx+(R-15)*Math.sin(th), y2=cy-(R-15)*Math.cos(th); const x3=cx+(R-30)*Math.sin(th), y3=cy-(R-30)*Math.cos(th);
+    s+=`<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="#fff" stroke-width="2"/><text x="${x3}" y="${y3+4}" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">${v}</text>`; });
+  s+='<line id="dIndL" stroke="#ffd60a" stroke-width="3" stroke-linecap="round"/><text id="dIndT" text-anchor="middle" fill="#ffd60a" font-size="20" font-weight="800"></text>';
+  $('#dialSvg').innerHTML=s; updateDial();
+}
+function updateDial(){
+  const R=300,cx=180,cy=335, th=(-30+60*zToP(S.zoom))*Math.PI/180;
+  const l=$('#dIndL'); if(!l) return;
+  l.setAttribute('x1',cx+(R+2)*Math.sin(th)); l.setAttribute('y1',cy-(R+2)*Math.cos(th));
+  l.setAttribute('x2',cx+(R-20)*Math.sin(th)); l.setAttribute('y2',cy-(R-20)*Math.cos(th));
+  const t=$('#dIndT'); t.setAttribute('x',180); t.setAttribute('y',74); t.textContent=fmtZ(S.zoom)+'×';
+}
+function dialMove(clientX){
+  const r=dial.getBoundingClientRect(); const x=(clientX-r.left)/r.width*360;
+  const th=Math.asin(clamp((x-180)/300,-.5,.5))*180/Math.PI; const p=clamp((th+30)/60,0,1);
+  let z=pToZ(p); if(z<1&&!(hw&&hw.min<1)) z=1;
+  cancelAnimationFrame(zAnim); applyZoom(z); updateDial();
+}
+const lensEl=$('#lens');
+lensEl.addEventListener('pointerdown',e=>{
+  dialTimer=setTimeout(()=>{ dialDrag=true; buildDial(); dial.classList.add('on'); buzz(12); try{lensEl.setPointerCapture(e.pointerId)}catch(_){} },230);
+});
+lensEl.addEventListener('pointermove',e=>{ if(dialDrag){ dialMove(e.clientX); } });
+function endDial(){ clearTimeout(dialTimer); if(dialDrag){ clearTimeout(dialHide); dialHide=setTimeout(()=>{dial.classList.remove('on');},900); setTimeout(()=>dialDrag=false,50);} }
+lensEl.addEventListener('pointerup',endDial); lensEl.addEventListener('pointercancel',endDial);
+dial.addEventListener('pointerdown',e=>{ dialDrag=true; clearTimeout(dialHide); dialMove(e.clientX); try{dial.setPointerCapture(e.pointerId)}catch(_){} });
+dial.addEventListener('pointermove',e=>{ if(e.buttons||e.pressure>0) dialMove(e.clientX); });
+dial.addEventListener('pointerup',()=>{ dialHide=setTimeout(()=>dial.classList.remove('on'),900); setTimeout(()=>dialDrag=false,50); });
+
+/* ---------- expanded controls (iPhone style) ---------- */
+const open={ctrl:false,sub:false,sheet:false,depth:false}; let ctrlCur=null;
+const CTRL=[['flash','Flash'],['live','Live'],['timer','Timer'],['ev','Exposure'],['style','Styles'],['aspect','Ratio'],['guide','Guides']];
+function ctrlShown(k){
+  if(k==='live') return S.mode==='photo'&&S.sub.photo==='photo';
+  if(k==='aspect') return (S.mode==='photo'&&S.sub.photo==='photo')||S.mode==='pose';
+  if(k==='flash') return !(S.facing==='user'&&S.mode!=='photo');
+  return true;
+}
+function ctrlVal(k){
+  switch(k){ case'flash':return S.flash!=='off'; case'live':return S.live; case'timer':return S.timer>0; case'ev':return S.ev!==0;
+    case'style':return S.filter!=='none'; case'aspect':return S.aspect!=='4:3'; case'guide':return S.grid||S.level; } return false;
+}
+function ctrlIcon(k){ if(k==='flash') return S.flash==='off'?IC.flashOff:S.flash==='auto'?IC.flashAuto:IC.flash; if(k==='live') return S.live?IC.live:IC.liveOff; return IC[k]; }
+function segHtml(attr,opts,cur,yel){ return `<div class="seg ${yel?'yel':''}">${opts.map(([v,l])=>`<button data-${attr}="${v}" class="${String(cur)===String(v)?'on':''}">${l}</button>`).join('')}</div>`; }
+function buildCtrl(){
+  if(ctrlCur&&!ctrlShown(ctrlCur)) ctrlCur=null;
+  $('#ctrlBar').innerHTML=CTRL.filter(([k])=>ctrlShown(k)).map(([k,l])=>`<button class="cb ${ctrlVal(k)?'val':''} ${ctrlCur===k?'sel':''}" data-c="${k}" aria-label="${l}">${ctrlIcon(k)}</button>`).join('');
+  const sub=$('#ctrlSub'); sub.hidden=!ctrlCur; if(!ctrlCur) return;
+  let h='';
+  if(ctrlCur==='flash') h=segHtml('flash',[['auto','Auto'],['on','On'],['off','Off']],S.flash,true);
+  else if(ctrlCur==='live') h=segHtml('live',[['1','On'],['0','Off']],S.live?1:0,true);
+  else if(ctrlCur==='timer') h=segHtml('timer',[[0,'Off'],[3,'3s'],[5,'5s'],[10,'10s']],S.timer,true);
+  else if(ctrlCur==='aspect') h=segHtml('asp',[['4:3','4:3'],['16:9','16:9'],['1:1','1:1']],S.aspect,true);
+  else if(ctrlCur==='ev') h=`<div class="row"><span class="lab">EXPOSURE</span><input class="sl" id="evSl" type="range" min="-20" max="20" value="${Math.round(S.ev*10)}"><span class="val" id="evVal">${evTxt()}</span></div>`;
+  else if(ctrlCur==='style') h='<div class="chips" id="stChips">'+Object.entries(FILTERS).map(([k,f])=>`<button class="fchip ${S.filter===k?'on':''}" data-f="${k}"><div class="sw" style="background:${f.sw}"></div>${f.n}</button>`).join('')+'</div>';
+  else if(ctrlCur==='guide') h=`<div class="seg yel"><button data-g="grid" class="${S.grid?'on':''}">Grid</button><button data-g="level" class="${S.level?'on':''}">Level</button></div>`;
+  sub.innerHTML=h;
+  if(ctrlCur==='style'){ const on=sub.querySelector('.fchip.on'); on&&on.scrollIntoView({inline:'center',block:'nearest'}); }
+}
+const evTxt=()=>(S.ev>0?'+':'')+S.ev.toFixed(1);
+function setCtrl(v){ open.ctrl=v; $('#ctrl').hidden=!v; $('#chev').classList.toggle('open',v); if(!v) ctrlCur=null; if(v) buildCtrl(); }
+$('#chev').onclick=e=>{ e.stopPropagation(); const v=!open.ctrl; closeAll(); setCtrl(v); };
+$('#ctrl').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return; buzz(6);
+  if(b.dataset.c){ ctrlCur=ctrlCur===b.dataset.c?null:b.dataset.c; buildCtrl(); return; }
+  if(b.dataset.flash){ S.flash=b.dataset.flash; persist(); paintTop(); flashApply(); }
+  else if(b.dataset.live!==undefined){ setLive(b.dataset.live==='1'); }
+  else if(b.dataset.timer!==undefined){ S.timer=+b.dataset.timer; persist(); }
+  else if(b.dataset.asp){ S.aspect=b.dataset.asp; persist(); layout(); applyRes(); }
+  else if(b.dataset.f){ S.filter=b.dataset.f; applyFilterPreview(); }
+  else if(b.dataset.g==='grid'){ S.grid=!S.grid; $('#gridLines').hidden=!S.grid; persist(); }
+  else if(b.dataset.g==='level'){ setLevel(!S.level); }
+  buildCtrl();
+});
+$('#ctrl').addEventListener('input',e=>{
+  if(e.target.id==='evSl'){ S.ev=e.target.value/10; $('#evVal').textContent=evTxt(); applyEV(); }
+});
+async function flashApply(){
+  const torchOk=caps&&caps.torch;
+  if(S.mode==='video'&&torchOk){ try{ await track.applyConstraints({advanced:[{torch:S.flash==='on'}]}); }catch(e){} }
+  else if(S.flash!=='off' && !torchOk && S.facing==='environment' && !(photoCaps&&photoCaps.fillLightMode&&photoCaps.fillLightMode.includes('flash'))) toast('Is phone me browser se flash control limited hai');
+}
+function setLive(v){ S.live=v; paintTop(); if(v) startLiveBuffer(); else stopLiveBuffer(); toast(v?'Live Photo on':'Live Photo off'); }
+$('#flashBtn').onclick=()=>{ S.flash=S.flash==='off'?'auto':S.flash==='auto'?'on':'off'; persist(); paintTop(); buzz(8); flashApply(); if(open.ctrl) buildCtrl(); };
+$('#liveBtn').onclick=()=>{ setLive(!S.live); buzz(8); if(open.ctrl) buildCtrl(); };
+
+/* level (horizon) */
+let lvListening=false;
+function lvHandler(e){
+  const a=e.accelerationIncludingGravity; if(!a||a.x==null||a.y==null) return;
+  const roll=Math.atan2(a.x,a.y)*180/Math.PI; const flat=Math.abs(a.z||0)>8;
+  const el=$('#level'); el.hidden=!S.level||flat;
+  const dev=((roll+540)%360)-180; const off=Math.abs(dev)<90?dev:(dev>0?dev-180:dev+180);
+  el.firstElementChild.nextElementSibling.style.transform=`rotate(${(-off).toFixed(1)}deg)`;
+  el.classList.toggle('ok',Math.abs(off)<1.2);
+}
+function setLevel(v){ S.level=v; persist(); const el=$('#level'); el.hidden=!v;
+  if(v&&!lvListening){ lvListening=true; addEventListener('devicemotion',lvHandler); }
+  if(!v&&lvListening){ lvListening=false; removeEventListener('devicemotion',lvHandler); } }
+
+/* sub-modes strip, quality chips */
+function setSub(v){ if(!SUBS[S.mode]) v=false; open.sub=v; $('#subStrip').hidden=!v; if(v) buildSub(); }
+function buildSub(){
+  const subs=SUBS[S.mode]||[]; const cur=S.sub[S.mode];
+  $('#subRow').innerHTML=subs.map(([k,l])=>`<button class="chip ${cur===k?'on':''}" data-s="${k}">${l}</button>`).join('');
+}
+$('#subRow').addEventListener('click',e=>{
+  const b=e.target.closest('.chip'); if(!b) return; S.sub[S.mode]=b.dataset.s; buzz(8);
+  buildSub(); onModeChanged(true);
+});
+function buildQ(){ $('#qRow').innerHTML=Object.entries(VQ).map(([k,q])=>`<button class="chip ${S.vq===k?'on':''}" data-q="${k}">${q.l}</button>`).join(''); }
+$('#qRow').addEventListener('click',e=>{ const b=e.target.closest('.chip'); if(!b||S.recording) return; S.vq=b.dataset.q; persist(); buildQ(); applyRes(); buzz(8); });
+
+/* settings */
+function setSheet(v){ open.sheet=v; $('#scrim').classList.toggle('on',v); $('#sheet').classList.toggle('on',v); if(v){ paintSheet(); paintMore(); } }
+function paintSheet(){
+  $('#tGrid').classList.toggle('on',S.grid); $('#tLevel').classList.toggle('on',S.level); $('#tSound').classList.toggle('on',S.sound);
+  $('#tHaptic').classList.toggle('on',S.haptic); $('#tMirror').classList.toggle('on',S.mirrorSave);
+  $$('#sAspect button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.aspect));
+  $$('#sPq button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.pq));
+  $('#sVq').innerHTML=Object.entries(VQ).map(([k,q])=>`<button class="chip ${S.vq===k?'on':''}" data-q="${k}">${q.l}</button>`).join('');
+}
+$('#setBtn').onclick=e=>{ e.stopPropagation(); const v=!open.sheet; closeAll(); setSheet(v); };
+$('#tGrid').onclick=()=>{ S.grid=!S.grid; $('#gridLines').hidden=!S.grid; persist(); paintSheet(); };
+$('#tLevel').onclick=()=>{ setLevel(!S.level); paintSheet(); };
+$('#tSound').onclick=()=>{ S.sound=!S.sound; persist(); paintSheet(); };
+$('#tHaptic').onclick=()=>{ S.haptic=!S.haptic; persist(); paintSheet(); };
+$('#tMirror').onclick=()=>{ S.mirrorSave=!S.mirrorSave; persist(); paintSheet(); };
+$('#sAspect').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; S.aspect=b.dataset.v; persist(); paintSheet(); layout(); applyRes(); };
+$('#sPq').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; S.pq=b.dataset.v; persist(); paintSheet(); };
+$('#sVq').onclick=e=>{ const b=e.target.closest('.chip'); if(!b) return; S.vq=b.dataset.q; persist(); paintSheet(); if(S.mode==='video') applyRes(); };
+$('#scrim').onclick=()=>setSheet(false);
+
+function closeAll(){
+  if(open.ctrl) setCtrl(false); if(open.sub) setSub(false); if(open.sheet) setSheet(false);
+  if(open.depth){ open.depth=false; $('#depthPanel').hidden=true; $('#depthChip').classList.remove('on'); }
+  dial.classList.remove('on');
+}
+const anyOpen=()=>open.ctrl||open.sub||open.sheet||open.depth;
+
+$('#flipBtn').onclick=async()=>{
+  if(S.recording) return; S.facing=S.facing==='user'?'environment':'user'; persist(); buzz(10);
+  $('#flipBtn svg').style.transform='rotate(180deg)'; setTimeout(()=>{$('#flipBtn svg').style.transform='';},500);
+  stage.classList.add('swap'); await startCamera(); stage.classList.remove('swap'); PORT.target=null;
+};
+
+/* ---------- modes ---------- */
+const hl=$('#hl'), cap=$('#capsule');
+function placeHl(){ const i=MODES.indexOf(S.mode); hl.style.transform=`translateX(${i*100}%)`; $$('.md').forEach((m,j)=>m.classList.toggle('on',j===i)); }
+function changeMode(m){
+  if(m===S.mode||!MODES.includes(m)) return; if(S.recording) return;
+  closeAll(); S.mode=m; buzz(8); placeHl(); onModeChanged(false);
+}
+let modeTimer=0;
+function onModeChanged(){
+  stage.classList.add('swap'); setTimeout(()=>stage.classList.remove('swap'),170);
+  requestAnimationFrame(()=>{
+    layout(); paintTop();
+    $('#qChips').hidden=!(S.mode==='video'&&S.sub.video==='video'); if(!$('#qChips').hidden) buildQ();
+    $('#posePanel').hidden=S.mode!=='pose'; $('#poseWrap').hidden=!(S.mode==='pose'&&S.pose.url);
+    $('#shutter').classList.toggle('video',S.mode==='video');
+    const pt=portraitOn();
+    $('#lightPanel').hidden=!pt; $('#depthChip').hidden=!pt;
+    if(pt){ buildLight(); paintDepth(); startPortrait(); } else stopPortrait();
+    if(S.mode!=='photo'||S.sub.photo!=='photo'){ stopLiveBuffer(); } else if(S.live) startLiveBuffer();
+    if(!SUBS[S.mode]) setSub(false); else if(open.sub) buildSub();
+    if(S.mode==='pose') buildPoseThumbs();
+    syncExtra();
+    if(open.ctrl) buildCtrl();
+    applyFilterPreview();
+  });
+  clearTimeout(modeTimer); modeTimer=setTimeout(applyRes,260);
+}
+$$('.md').forEach(m=>m.addEventListener('click',()=>{
+  if(cap.dataset.moved) return;
+  if(m.dataset.m===S.mode){ if(SUBS[S.mode]){ closeAll(); setSub(!open.sub); } } else changeMode(m.dataset.m);
+}));
+let cp=null;
+cap.addEventListener('pointerdown',e=>{
+  cp={id:e.pointerId,x:e.clientX,y:e.clientY,hold:false,w:cap.getBoundingClientRect(),base:MODES.indexOf(S.mode)};
+  cap.dataset.moved='';
+  cp.t=setTimeout(()=>{ if(!cp) return; cp.hold=true; cap.classList.add('holding'); hl.style.transition='scale .3s var(--ease)'; buzz(12); try{cap.setPointerCapture(cp.id)}catch(_){} },140);
+});
+cap.addEventListener('pointermove',e=>{
+  if(!cp) return; const dx=e.clientX-cp.x, dy=e.clientY-cp.y;
+  if(!cp.hold){ if(Math.abs(dx)>8||Math.abs(dy)>8){ clearTimeout(cp.t);
+      if(dy<-22&&Math.abs(dy)>Math.abs(dx)){ closeAll(); setSub(true); cap.dataset.moved='1'; cp=null; return; }
+      cp.hold=true; cap.classList.add('holding'); hl.style.transition='scale .3s var(--ease)'; try{cap.setPointerCapture(cp.id)}catch(_){} } else return; }
+  const seg=(cp.w.width-8)/3; const px=clamp(cp.base*seg+dx,0,seg*2);
+  hl.style.transform=`translateX(${px/seg*100}%)`; cap.dataset.moved='1';
+  const idx=clamp(Math.round(px/seg),0,2); $$('.md').forEach((m,j)=>m.classList.toggle('on',j===idx));
+});
+function capEnd(e){
+  if(!cp) return; clearTimeout(cp.t);
+  if(cp.hold){ const seg=(cp.w.width-8)/3; const dx=(e.clientX||cp.x)-cp.x; const idx=clamp(Math.round((cp.base*seg+dx)/seg),0,2);
+    cap.classList.remove('holding'); hl.style.transition=''; const m=MODES[idx]; if(m!==S.mode){ changeMode(m); } else placeHl();
+    setTimeout(()=>cap.dataset.moved='',60); }
+  cp=null;
+}
+cap.addEventListener('pointerup',capEnd); cap.addEventListener('pointercancel',capEnd);
+
+/* ---------- stage gestures ---------- */
+const pts=new Map(); let g=null; let lockOn=false;
+function stagePos(e){ const r=stage.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top,rx:(e.clientX-r.left)/r.width,ry:(e.clientY-r.top)/r.height}; }
+document.addEventListener('pointerdown',e=>{
+  if(!anyOpen()) return;
+  const t=e.target;
+  if(t.closest('#ctrl,#subStrip,#sheet,#chev,#setBtn,#capsule,#depthPanel,#depthChip')) return;
+  closeAll(); if(t.closest('#stage')) g={ignore:true};
+},true);
+stage.addEventListener('pointerdown',e=>{
+  if(e.target.closest('#depthChip')) return;
+  stage.setPointerCapture(e.pointerId); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(g&&g.ignore){ g={ignore:true,until:true}; return; }
+  if(pts.size===1){
+    g={x0:e.clientX,y0:e.clientY,t0:performance.now(),moved:false,pose:S.mode==='pose'&&S.pose.url,px:S.pose.x,py:S.pose.y};
+    g.lp=setTimeout(()=>{ if(g&&!g.moved&&!g.pinch){ g.long=true; doFocus(stagePos(e),true); } },480);
+  } else if(pts.size===2){
+    clearTimeout(g&&g.lp); const [a,b]=[...pts.values()];
+    g=Object.assign(g||{},{pinch:true,d0:Math.hypot(a.x-b.x,a.y-b.y),z0:S.zoom,s0:S.pose.sc});
+  }
+});
+stage.addEventListener('pointermove',e=>{
+  if(!pts.has(e.pointerId)) return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(!g||g.ignore) return;
+  if(g.pinch&&pts.size>=2){
+    const [a,b]=[...pts.values()]; const d=Math.hypot(a.x-b.x,a.y-b.y)/g.d0;
+    if(S.mode==='pose'&&S.pose.url){ S.pose.sc=clamp(g.s0*d,.4,2.2); $('#poseSc').value=Math.round(S.pose.sc*100); paintPose(); }
+    else { cancelAnimationFrame(zAnim); applyZoom(g.z0*d); if(dial.classList.contains('on')) updateDial(); }
+    return;
+  }
+  const dx=e.clientX-g.x0, dy=e.clientY-g.y0;
+  if(!g.moved && Math.hypot(dx,dy)>10){ g.moved=true; clearTimeout(g.lp); }
+  if(g.moved && !g.long && g.pose){ S.pose.x=g.px+dx; S.pose.y=g.py+dy; paintPose(); }
+  if(g.long && lockOn){ adjustExpo(stagePos(e)); }
+});
+function stageUp(e){
+  pts.delete(e.pointerId);
+  if(!g){ return; }
+  if(g.ignore){ if(pts.size===0) g=null; return; }
+  if(pts.size===0){
+    clearTimeout(g.lp); const dx=e.clientX-g.x0, dy=e.clientY-g.y0, dt=performance.now()-g.t0;
+    if(!g.pinch){
+      if(!g.moved && !g.long && dt<450){ doFocus(stagePos(e),false); }
+      else if(g.moved && !g.pose && Math.abs(dx)>70 && Math.abs(dx)>Math.abs(dy)*1.6){
+        const i=MODES.indexOf(S.mode); changeMode(MODES[clamp(i+(dx<0?1:-1),0,2)]);
+      }
+    }
+    g=null;
+  }
+}
+stage.addEventListener('pointerup',stageUp); stage.addEventListener('pointercancel',stageUp);
+
+let expoVal=.5, focusPos=null;
+async function doFocus(p,lock){
+  const fb=$('#focusBox'); fb.style.left=p.x+'px'; fb.style.top=p.y+'px'; fb.classList.remove('fade'); fb.classList.add('on');
+  $('#expo').style.left=p.x+'px'; $('#expo').style.top=p.y+'px'; $('#expo').classList.add('on'); focusPos=p; buzz(lock?20:6);
+  clearTimeout(doFocus.t);
+  if(lock){ lockOn=true; $('#lockTag').hidden=false; }
+  else { lockOn=false; $('#lockTag').hidden=true; doFocus.t=setTimeout(()=>{ fb.classList.add('fade'); $('#expo').classList.remove('on'); setTimeout(()=>fb.classList.remove('on'),1500); },2600); }
+  if(portraitOn()) setPortraitTarget(p);
+  if(!track) return;
+  try{
+    const adv={};
+    if(caps.pointsOfInterest) adv.pointsOfInterest=[{x:p.rx,y:p.ry}];
+    if(caps.focusMode){ const fm=caps.focusMode; adv.focusMode=lock&&fm.includes('manual')?'manual':fm.includes('single-shot')?'single-shot':fm[0]; }
+    if(Object.keys(adv).length) await track.applyConstraints({advanced:[adv]});
+  }catch(e){}
+  if(!lock){ try{ if(caps.focusMode&&caps.focusMode.includes('continuous')){ setTimeout(()=>track&&track.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{}),2500); } }catch(e){} }
+}
+function adjustExpo(p){
+  if(!focusPos) return; const dy=(focusPos.y-p.y)/80; expoVal=clamp(.5+dy*.5,0,1);
+  $('#expoKn').style.top=((1-expoVal)*120)+'px';
+  S.ev=Math.round((expoVal-.5)*40)/10; applyEV(); if(open.ctrl) buildCtrl();
+}
+
+/* ---------- pose ---------- */
+function paintPose(){
+  const i=$('#poseImg'); i.style.opacity=S.pose.op;
+  i.style.transform=`translate(${S.pose.x}px,${S.pose.y}px) scale(${S.pose.sc*(S.pose.flip?-1:1)},${S.pose.sc})`;
+}
+async function setPoseBlob(blob,id){
+  if(S.pose.url&&S.pose.blobUrl) URL.revokeObjectURL(S.pose.blobUrl);
+  const u=URL.createObjectURL(blob); S.pose.blobUrl=u; S.pose.url=u; S.pose.id=id; S.pose.x=0;S.pose.y=0;S.pose.sc=1; $('#poseSc').value=100;
+  $('#poseImg').src=u; $('#poseWrap').hidden=false; paintPose(); buildPoseThumbs();
+}
+let poseList=[];
+async function buildPoseThumbs(){
+  poseList=(await dbAll('poses')).sort((a,b)=>b.ts-a.ts).slice(0,12);
+  $('#poseThumbs').innerHTML=poseList.map(p=>`<button class="pth ${S.pose.id===p.id?'on':''}" data-id="${p.id}"><img src="${urlOf(p,'blob')}" alt=""></button>`).join('');
+}
+$('#poseThumbs').addEventListener('click',e=>{ const b=e.target.closest('.pth'); if(!b) return; const p=poseList.find(x=>String(x.id)===b.dataset.id); if(p) setPoseBlob(p.blob,p.id); });
+$('#poseAdd').onclick=()=>{ const f=document.createElement('input'); f.type='file'; f.accept='image/*'; f.onchange=async()=>{
+  const file=f.files[0]; if(!file) return;
+  const bmp=await createImageBitmap(file); const sc=Math.min(1,1100/Math.max(bmp.width,bmp.height));
+  const c=document.createElement('canvas'); c.width=Math.round(bmp.width*sc); c.height=Math.round(bmp.height*sc); c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.9)); const id=Date.now();
+  await dbPut('poses',{id,ts:id,blob}); await setPoseBlob(blob,id); toast('Pose photo lag gayi. Opacity slider se halka karo');
+}; f.click(); };
+$('#poseOp').oninput=e=>{ S.pose.op=e.target.value/100; paintPose(); };
+$('#poseSc').oninput=e=>{ S.pose.sc=e.target.value/100; paintPose(); };
+$('#poseFlip').onclick=()=>{ S.pose.flip=!S.pose.flip; $('#poseFlip').classList.toggle('on',S.pose.flip); paintPose(); };
+$('#poseDel').onclick=()=>{ S.pose.url=null; S.pose.id=null; $('#poseWrap').hidden=true; $('#poseImg').removeAttribute('src'); buildPoseThumbs(); };
+
+/* ---------- PORTRAIT: real subject segmentation (MediaPipe) ---------- */
+const PORT={ready:false,loading:false,failed:false,seg:null,inter:null,target:null,run:false,has:false,maskOk:false,last:0};
+const MP_BASE='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MODEL_PERSON='https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
+const MODEL_TOUCH='https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite';
+const mkCanvas=(w,h)=>{ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; };
+const inCv=mkCanvas(256,340), mCv=mkCanvas(256,340), bgCv=mkCanvas(64,64);
+const pCanvas=$('#pCanvas'); const pctx=pCanvas.getContext('2d');
+
+async function loadPortrait(){
+  if(PORT.ready||PORT.loading||PORT.failed) return; PORT.loading=true; toast('Portrait AI load ho raha hai, internet chahiye');
+  try{
+    const mod=await import(MP_BASE+'/vision_bundle.mjs');
+    const fs=await mod.FilesetResolver.forVisionTasks(MP_BASE+'/wasm');
+    const mk=async(Cls,url,extra)=>{ for(const d of ['GPU','CPU']){ try{ return await Cls.createFromOptions(fs,{baseOptions:{modelAssetPath:url,delegate:d},runningMode:'IMAGE',...extra}); }catch(e){ if(d==='CPU') throw e; } } };
+    PORT.seg=await mk(mod.ImageSegmenter,MODEL_PERSON,{outputCategoryMask:true,outputConfidenceMasks:false});
+    PORT.inter=await mk(mod.InteractiveSegmenter,MODEL_TOUCH,{outputCategoryMask:true,outputConfidenceMasks:false});
+    PORT.ready=true; toast('Portrait ready. Kisi bhi cheez par tap karo');
+  }catch(e){ console.error(e); PORT.failed=true; toast('Portrait AI load nahi hua, internet check karo. Abhi simple blur chalega'); }
+  PORT.loading=false; if(portraitOn()) startPortrait();
+}
+/* run one segmentation; fills mCv (alpha=subject); kp = {x,y} normalised or null for person */
+function segRun(src,kp){
+  let out=null;
+  const cb=r=>{
+    const m=r.categoryMask; if(!m) return; const arr=m.getAsUint8Array(); const w=m.width,h=m.height;
+    let cnt=0; for(let i=0;i<arr.length;i++) if(arr[i]>0) cnt++;
+    const inv=!!kp && cnt/arr.length>0.82;
+    if(mCv.width!==w||mCv.height!==h){ mCv.width=w; mCv.height=h; }
+    const cx=mCv.getContext('2d'); const id=cx.createImageData(w,h); const d=id.data;
+    for(let i=0;i<arr.length;i++){ const on=(arr[i]>0)!==inv; d[i*4+3]=on?255:0; }
+    cx.putImageData(id,0,0); const c2=inv?arr.length-cnt:cnt; out={cover:c2/arr.length};
+  };
+  try{ if(kp) PORT.inter.segment(src,{keypoint:kp},cb); else PORT.seg.segment(src,cb); }catch(e){ console.error(e); }
+  return out;
+}
+function cropRect(vw,vh,ar,dig){
+  let sw,sh; if(vw/vh>ar){ sh=vh; sw=sh*ar; } else { sw=vw; sh=sw/ar; }
+  sw/=dig; sh/=dig; return [(vw-sw)/2,(vh-sh)/2,sw,sh];
+}
+function viewDraw(ctx,dw,dh,css,mirror){
+  const vw=vid.videoWidth,vh=vid.videoHeight; if(!vw) return;
+  const [sx,sy,sw,sh]=cropRect(vw,vh,stageW/stageH,digital);
+  ctx.save(); ctx.filter=css||'none'; if(mirror){ ctx.translate(dw,0); ctx.scale(-1,1); } ctx.drawImage(vid,sx,sy,sw,sh,0,0,dw,dh); ctx.restore();
+}
+function setPortraitTarget(p){
+  PORT.target={x:p.rx,y:p.ry};{const b=$('#blurLayer');b.style.setProperty('--fx',(p.rx*100).toFixed(1)+'%');b.style.setProperty('--fy',(p.ry*100).toFixed(1)+'%');b.classList.remove('rack');void b.offsetWidth;b.classList.add('rack');} $('#subjAuto').classList.remove('on'); $('#subjTap').classList.add('on'); PORT.last=0;
+}
+function startPortrait(){
+  const fallback=$('#blurLayer');
+  if(!PORT.ready){ fallback.hidden=PORT.failed?false:false; fallback.hidden=false; $('#pCanvas').hidden=true; loadPortrait(); return; }
+  fallback.hidden=true; $('#pCanvas').hidden=false;
+  if(PORT.run) return; PORT.run=true; applyFilterPreview(); pLoop(); segLoop();
+}
+function stopPortrait(){
+  PORT.run=false; $('#pCanvas').hidden=true; $('#blurLayer').hidden=true; pctx.clearRect(0,0,pCanvas.width,pCanvas.height); applyFilterPreview();
+}
+async function segLoop(){
+  while(PORT.run){
+    if(PORT.ready&&vid.videoWidth){
+      const iw=192, ih=Math.round(192*stageH/stageW); inCv.width=iw; inCv.height=ih;
+      viewDraw(inCv.getContext('2d'),iw,ih,'',S.facing==='user');
+      let out=segRun(inCv,PORT.target);
+      if((!out||out.cover<0.01)&&!PORT.target) out=segRun(inCv,{x:.5,y:.5});
+      PORT.has=!!out&&out.cover>0.01; PORT.maskOk=!!out;
+    }
+    await sleep(PORT.target?70:40);
+  }
+}
+function pLoop(){ const _n=performance.now(); if(_n-(pLoop.t||0)<30){ if(PORT.run) requestAnimationFrame(pLoop); return; } pLoop.t=_n;
+  if(!PORT.run) return;
+  const L=LIGHT[S.light], w=pCanvas.width, h=pCanvas.height;
+  pctx.globalCompositeOperation='source-over'; pctx.clearRect(0,0,w,h);
+  if(PORT.has&&PORT.maskOk&&vid.videoWidth){
+    const s=4/fnum(), k=2+s*6; const bw=Math.max(12,Math.round(w/k)), bh=Math.max(12,Math.round(h/k));
+    if(L.bg==='blur'){
+      if(bgCv.width!==bw||bgCv.height!==bh){ bgCv.width=bw; bgCv.height=bh; }
+      const css=[L.bgc,fcss()].filter(Boolean).join(' ');
+      viewDraw(bgCv.getContext('2d'),bw,bh,css,S.facing==='user');
+      pctx.imageSmoothingEnabled=true; pctx.imageSmoothingQuality='high'; pctx.filter='none';
+      pctx.drawImage(bgCv,-8,-8,w+16,h+16); pctx.filter='none';
+    } else { pctx.fillStyle=L.bg==='black'?'#000':'#fff'; pctx.fillRect(0,0,w,h); }
+    pctx.globalCompositeOperation='destination-out'; pctx.drawImage(mCv,0,0,w,h);
+    pctx.globalCompositeOperation='source-over';
+  }
+  requestAnimationFrame(pLoop);
+}
+/* portrait UI: lighting wheel + depth */
+function buildLight(){
+  $('#lightChips').innerHTML=Object.entries(LIGHT).map(([k,l])=>`<button class="fchip round ${S.light===k?'on':''}" data-l="${k}"><div class="sw" style="background:${l.sw}"></div>${l.n.replace(' Light','').replace('Mono','Mono')}</button>`).join('');
+  $('#lightName').textContent=LIGHT[S.light].n;
+  const on=$('#lightChips .fchip.on'); on&&on.scrollIntoView({inline:'center',block:'nearest'});
+}
+$('#lightChips').addEventListener('click',e=>{ const b=e.target.closest('.fchip'); if(!b) return; S.light=b.dataset.l; persist(); buildLight(); applyFilterPreview(); buzz(8); });
+function updateBlurVar(){ stage.style.setProperty('--rx',(26+S.fv*.2)+'%'); stage.style.setProperty('--ry',(20+S.fv*.16)+'%'); const px=Math.max(2,0.014*stageW*(4/fnum())); stage.style.setProperty('--bl',px.toFixed(1)+'px'); }
+function paintDepth(){ $('#depthChip').textContent='f '+fnum().toFixed(1); $('#depthVal').textContent='f '+fnum().toFixed(1); $('#depthSl').value=S.fv; updateBlurVar(); }
+$('#depthChip').onclick=e=>{ e.stopPropagation(); const v=!open.depth; closeAll(); open.depth=v; $('#depthPanel').hidden=!v; $('#depthChip').classList.toggle('on',v); paintDepth(); };
+$('#depthSl').oninput=e=>{ S.fv=+e.target.value; paintDepth(); };
+$('#depthSl').onchange=()=>persist();
+$('#subjAuto').onclick=()=>{ PORT.target=null; $('#subjAuto').classList.add('on'); $('#subjTap').classList.remove('on'); toast('Auto: pehle insaan, warna beech ki cheez'); };
+$('#subjTap').onclick=()=>toast('Photo par kisi cheez ya insaan par tap karo');
+$('#subjAuto').classList.remove('on'); $('#subjTap').classList.remove('on'); $('#subjAuto').classList.add('on');
+
+/* ---------- photo capture ---------- */
+let busy=false;
+async function grabFrame(){ const w=vid.videoWidth,h=vid.videoHeight; const c=mkCanvas(w,h); c.getContext('2d').drawImage(vid,0,0,w,h); return createImageBitmap(c); }
+async function renderPhoto(bmp,{portrait}){
+  const ar=stageW/stageH; const bw=bmp.width,bh=bmp.height;
+  const rot=(bw>bh)!==(ar>1)&&Math.abs(ar-1)>.01;
+  const W=rot?bh:bw,H=rot?bw:bh; let sw,sh;
+  if(W/H>ar){ sh=H; sw=sh*ar; } else { sw=W; sh=sw/ar; }
+  sw/=digital; sh/=digital;
+  let ow=Math.round(sw), oh=Math.round(sh); const mx=Math.max(ow,oh); if(S.pq==='bal'&&mx>4000){ const k=4000/mx; ow=Math.round(ow*k); oh=Math.round(oh*k); }
+  /* draw the cropped, oriented image into any ctx at size dw x dh */
+  const drawTo=(ctx,dw,dh,css)=>{
+    ctx.save(); if(css) ctx.filter=css;
+    if(rot){ ctx.translate(dw/2,dh/2); ctx.rotate(Math.PI/2); const sx=(bw-sh)/2, sy=(bh-sw)/2; ctx.drawImage(bmp,sx,sy,sh,sw,-dh/2,-dw/2,dh,dw); }
+    else { const sx=(bw-sw)/2, sy=(bh-sh)/2; ctx.drawImage(bmp,sx,sy,sw,sh,0,0,dw,dh); }
+    ctx.restore();
+  };
+  const base=fcss();
+  let c=mkCanvas(ow,oh), x=c.getContext('2d'); x.imageSmoothingQuality='high';
+  let done=false;
+  if(portrait&&PORT.ready){
+    /* find the subject on this exact frame */
+    const iw=320, ih=Math.round(320*oh/ow); inCv.width=iw; inCv.height=ih; drawTo(inCv.getContext('2d'),iw,ih,'');
+    let kp=null; if(PORT.target){ kp={x:S.facing==='user'?1-PORT.target.x:PORT.target.x,y:PORT.target.y}; }
+    let out=segRun(inCv,kp); if((!out||out.cover<0.01)&&!kp) out=segRun(inCv,{x:.5,y:.5});
+    if(out&&out.cover>0.01){
+      const L=LIGHT[S.light];
+      const mask=mkCanvas(ow,oh), mx2=mask.getContext('2d'); mx2.imageSmoothingQuality='high'; mx2.filter=`blur(${Math.max(1,ow*.0022).toFixed(1)}px)`; mx2.drawImage(mCv,0,0,ow,oh);
+      /* background */
+      if(L.bg==='blur'){
+        const s=4/fnum(), k=2+s*6; const bwid=Math.max(12,Math.round(ow/k)), bhei=Math.max(12,Math.round(oh/k));
+        const t=mkCanvas(bwid,bhei); drawTo(t.getContext('2d'),bwid,bhei,[L.bgc,base].filter(Boolean).join(' '));
+        x.imageSmoothingEnabled=true; x.filter=`blur(${Math.max(1,ow/bwid*.7).toFixed(1)}px)`; x.drawImage(t,-ow/bwid*4,-ow/bwid*4,ow+ow/bwid*8,oh+ow/bwid*8); x.filter='none';
+      } else { x.fillStyle=L.bg==='black'?'#000':'#fff'; x.fillRect(0,0,ow,oh); }
+      /* sharp subject with the lighting look */
+      const sub=mkCanvas(ow,oh), sx2=sub.getContext('2d'); drawTo(sx2,ow,oh,[L.subj,base].filter(Boolean).join(' '));
+      sx2.globalCompositeOperation='destination-in'; sx2.drawImage(mask,0,0);
+      x.drawImage(sub,0,0); done=true;
+    } else toast('Subject nahi mila, normal photo save hui');
+  }
+  if(!done){
+    drawTo(x,ow,oh,base);
+    if(portrait&&!PORT.ready){ /* offline fallback: soft edge blur */
+      const t=mkCanvas(ow,oh), tx2=t.getContext('2d'); const r=Math.max(2,0.014*ow*(4/fnum()));
+      drawTo(tx2,ow,oh,('blur('+r+'px) '+base).trim());
+      tx2.globalCompositeOperation='destination-in';
+      tx2.save(); tx2.translate(ow*.5,oh*.46); tx2.scale(.8,1.0); tx2.translate(-ow*.5,-oh*.46);
+      const g2=tx2.createRadialGradient(ow*.5,oh*.46,ow*.18,ow*.5,oh*.46,ow*.52); g2.addColorStop(0,'rgba(0,0,0,0)'); g2.addColorStop(1,'rgba(0,0,0,1)');
+      tx2.fillStyle=g2; tx2.fillRect(-ow,-oh,ow*3,oh*3); tx2.restore(); x.drawImage(t,0,0);
+    }
+  }
+  if(S.facing==='user'&&S.mirrorSave){ const m=mkCanvas(ow,oh), mc=m.getContext('2d'); mc.translate(ow,0); mc.scale(-1,1); mc.drawImage(c,0,0); c=m; }
+  return new Promise(r=>c.toBlob(r,'image/jpeg',.97));
+}
+async function takePhoto(){
+  if(busy||S.recording) return; busy=true;
+  try{
+    click(); buzz(15); $('#flashAnim').classList.remove('go'); void $('#flashAnim').offsetWidth; $('#flashAnim').classList.add('go');
+    const livePromise=(S.live&&S.mode==='photo'&&S.sub.photo==='photo')?captureLive():null;
+    const portrait=portraitOn();
+    if(nightOn()){ const nb=await nightShoot(); await saveItem({type:'photo',blob:S.wm?await stamp(nb):nb}); return; }
+    let blob=null, bmp=null;
+    if(ic&&!(digital>1.001)){
+      try{
+        const o={}; if(S.pq==='max'&&photoCaps&&photoCaps.imageWidth){ o.imageWidth=photoCaps.imageWidth.max; o.imageHeight=photoCaps.imageHeight.max; }
+        if(S.facing==='environment'&&S.flash!=='off'&&photoCaps&&photoCaps.fillLightMode&&photoCaps.fillLightMode.includes('flash')) o.fillLightMode=S.flash==='on'?'flash':'auto';
+        blob=await ic.takePhoto(o);
+      }catch(e){ blob=null; }
+    }
+    let out=blob;
+    if(blob){
+      bmp=await createImageBitmap(blob);
+      const ar=stageW/stageH; const cropNeeded=Math.abs(bmp.width/bmp.height-ar)>0.02;
+      const need=fcss()!==''||portrait||cropNeeded||(S.facing==='user'&&S.mirrorSave)||S.pq==='bal';
+      if(need) out=await renderPhoto(bmp,{portrait});
+    } else { bmp=await grabFrame(); out=await renderPhoto(bmp,{portrait}); }
+    if(S.wm) out=await stamp(out);
+    let clip=null; if(livePromise){ clip=await livePromise.catch(()=>null); }
+    await saveItem({type:'photo',blob:out,clip:clip||undefined,live:!!clip});
+  }catch(e){ console.error(e); toast('Photo save nahi hui, dobara try karo'); }
+  finally{ busy=false; }
+}
+async function saveItem(it){
+  it.id=Date.now()+Math.floor(Math.random()*999); it.ts=Date.now();
+  await dbPut('items',it); items.unshift(it); paintGalThumb();
+  const b=$('#galBtn'); b.animate([{transform:'scale(1.25)'},{transform:'scale(1)'}],{duration:350,easing:'cubic-bezier(.2,.9,.25,1.2)'});
+}
+function paintGalThumb(){
+  const b=$('#galBtn'); const it=items[0];
+  if(!it){ b.innerHTML=IC.gallery; return; }
+  b.innerHTML = it.type==='photo'?`<img src="${urlOf(it)}" alt="">`:`<video src="${urlOf(it)}#t=0.1" muted playsinline preload="metadata"></video>`;
+}
+
+/* ---------- live photo buffer ---------- */
+const LMIME=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m));
+let liveRecs=[], liveInt=0;
+function spawnLive(){
+  if(!stream||!window.MediaRecorder||!LMIME||S.recording) return;
+  const r=new MediaRecorder(new MediaStream([track]),{mimeType:LMIME,videoBitsPerSecond:6e6}); const ch=[];
+  r.born=performance.now(); r.want=null;
+  r.ondataavailable=e=>{ if(e.data.size) ch.push(e.data); };
+  r.onstop=()=>{ liveRecs=liveRecs.filter(x=>x!==r); if(r.want) r.want(new Blob(ch,{type:LMIME})); };
+  r.start(); liveRecs.push(r); setTimeout(()=>{ if(r.state==='recording') r.stop(); },3000);
+}
+function startLiveBuffer(){ stopLiveBuffer(); if(!stream) return; spawnLive(); liveInt=setInterval(spawnLive,1500); }
+function stopLiveBuffer(){ clearInterval(liveInt); liveRecs.forEach(r=>{ r.want=null; try{ if(r.state==='recording') r.stop(); }catch(e){} }); liveRecs=[]; }
+function captureLive(){
+  return new Promise((res,rej)=>{
+    const now=performance.now(); const cand=liveRecs.filter(r=>r.state==='recording'&&now-r.born>800).sort((a,b)=>a.born-b.born)[0]||liveRecs[0];
+    if(!cand) return rej(); cand.want=res; setTimeout(()=>rej(),4200);
+  });
+}
+
+/* ---------- video recording ---------- */
+const VMIME=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=h264','video/webm;codecs=vp9','video/webm'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m));
+let rec=null, recChunks=[], recT0=0, recTick=0, recAudio=null, drawStop=null, lapse=null, slowFactor=1;
+function startDrawLoop(canvas){
+  const ctx=canvas.getContext('2d'); let on=true; const css=fcss();
+  const paint=()=>{ const w=vid.videoWidth,h=vid.videoHeight; const sw=w/digital, sh=h/digital; ctx.filter=css||'none'; ctx.drawImage(vid,(w-sw)/2,(h-sh)/2,sw,sh,0,0,canvas.width,canvas.height); };
+  const loop=()=>{ if(!on) return; paint(); if(vid.requestVideoFrameCallback) vid.requestVideoFrameCallback(loop); else requestAnimationFrame(loop); };
+  loop(); return ()=>{ on=false; };
+}
+async function startRec(){
+  if(S.recording||!stream) return;
+  stopLiveBuffer();
+  const kind=S.sub.video; const q=VQ[S.vq];
+  S.recording=true; $('#shutter').classList.add('rec'); $('#recTag').hidden=false; $('#recTime').textContent='00:00'; buzz(25); closeAll();
+  if(S.mode!=='video') $('#shutter').classList.add('hold');
+  recT0=Date.now(); clearInterval(recTick);
+  recTick=setInterval(()=>{ const s=Math.floor((Date.now()-recT0)/1000); const m=String(Math.floor(s/60)).padStart(2,'0'),ss=String(s%60).padStart(2,'0'); $('#recTime').textContent=m+':'+ss; },250);
+  if(kind==='lapse'&&S.mode==='video'){
+    const w=Math.min(vid.videoWidth,1920), h=Math.round(w*vid.videoHeight/vid.videoWidth);
+    const c=mkCanvas(w,h); const cx=c.getContext('2d'); lapse={frames:[],c,t:0};
+    const snap=()=>{ const vw=vid.videoWidth,vh=vid.videoHeight,sw=vw/digital,sh=vh/digital; cx.filter=fcss()||'none'; cx.drawImage(vid,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,w,h); c.toBlob(b=>b&&lapse&&lapse.frames.push(b),'image/jpeg',.92); };
+    snap(); lapse.t=setInterval(snap,1000); return;
+  }
+  slowFactor=1;
+  if(kind==='slow'&&S.mode==='video'){ const f=Math.round(track.getSettings().frameRate||30); slowFactor=clamp(Math.round(f/30),1,8); if(slowFactor===1) toast('Is phone par high-fps nahi mila, normal speed me record ho raha hai'); }
+  try{ recAudio=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true}}); }catch(e){ recAudio=null; toast('Mic permission nahi mili, video bina awaaz ke record hogi'); }
+  let vtracks;
+  if(fcss()!==''||digital>1.001){
+    const c=mkCanvas(vid.videoWidth,vid.videoHeight); const fps=Math.round(track.getSettings().frameRate||30);
+    drawStop=startDrawLoop(c); vtracks=c.captureStream(fps).getVideoTracks();
+  } else vtracks=[track];
+  const ms=new MediaStream([...vtracks,...(recAudio?recAudio.getAudioTracks():[])]);
+  const br=(S.mode==='video'&&kind==='video')?q.br:20e6;
+  recChunks=[]; rec=new MediaRecorder(ms,{mimeType:vmime()||undefined,videoBitsPerSecond:br,audioBitsPerSecond:192000});
+  rec.ondataavailable=e=>{ if(e.data.size) recChunks.push(e.data); };
+  rec.onstop=async()=>{
+    const blob=new Blob(recChunks,{type:(VMIME||'video/webm').split(';')[0]});
+    if(blob.size>1000) await saveItem({type:'video',blob,slow:slowFactor>1?slowFactor:undefined});
+    if(S.mode==='photo'&&S.live&&S.sub.photo==='photo') startLiveBuffer();
+  };
+  rec.start(1000);
+}
+async function stopRec(){
+  if(!S.recording) return; S.recording=false;
+  clearInterval(recTick); $('#recTag').hidden=true; $('#shutter').classList.remove('rec','hold'); buzz(20);
+  if(lapse){
+    clearInterval(lapse.t); const L=lapse; lapse=null; await sleep(300);
+    if(L.frames.length<2){ toast('Time-lapse bahut chhota tha'); return; }
+    await buildLapse(L); return;
+  }
+  if(drawStop){ drawStop(); drawStop=null; }
+  try{ rec.stop(); }catch(e){}
+  if(recAudio){ recAudio.getTracks().forEach(t=>t.stop()); recAudio=null; }
+}
+async function buildLapse(L){
+  const busyEl=$('#busy'); busyEl.hidden=false;
+  const first=await createImageBitmap(L.frames[0]); const c=mkCanvas(first.width,first.height), x=c.getContext('2d');
+  const out=c.captureStream(30); const chunks=[];
+  const r=new MediaRecorder(out,{mimeType:VMIME||undefined,videoBitsPerSecond:16e6}); r.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  const done=new Promise(res=>r.onstop=res); r.start(500);
+  for(let i=0;i<L.frames.length;i++){
+    const b=await createImageBitmap(L.frames[i]); x.drawImage(b,0,0,c.width,c.height); b.close&&b.close();
+    busyEl.innerHTML='Time-lapse ban raha hai<br>'+Math.round((i+1)/L.frames.length*100)+'%';
+    await sleep(34);
+  }
+  r.stop(); await done;
+  const blob=new Blob(chunks,{type:(VMIME||'video/webm').split(';')[0]});
+  await saveItem({type:'video',blob,lapse:true}); busyEl.hidden=true; toast('Time-lapse save ho gaya');
+}
+
+/* ---------- shutter ---------- */
+const shutter=$('#shutter'); let sh=null;
+async function countdown(n){
+  const el=$('#count'); el.hidden=false;
+  for(let i=n;i>0;i--){ el.textContent=i; el.animate([{transform:'scale(1.5)',opacity:0},{transform:'scale(1)',opacity:1}],{duration:380,easing:'ease-out'}); buzz(8); await sleep(1000); }
+  el.hidden=true;
+}
+async function fire(){
+  closeAll();
+  if(S.mode==='video'){
+    if(S.recording){ stopRec(); return; }
+    if(S.timer) await countdown(S.timer); startRec(); return;
+  }
+  if(S.timer) await countdown(S.timer);
+  takePhoto();
+}
+shutter.addEventListener('pointerdown',e=>{
+  shutter.classList.add('down'); try{shutter.setPointerCapture(e.pointerId)}catch(_){}
+  sh={t:0,long:false};
+  if(S.mode!=='video'){ sh.t=setTimeout(()=>{ if(!sh) return; sh.long=true; shutter.classList.add('hold'); startRec(); },520); }
+});
+shutter.addEventListener('pointerup',e=>{
+  shutter.classList.remove('down'); if(!sh) return; clearTimeout(sh.t);
+  if(sh.long){ stopRec(); } else if(!busy) fire();
+  sh=null;
+});
+shutter.addEventListener('pointercancel',()=>{ shutter.classList.remove('down'); if(sh){ clearTimeout(sh.t); if(sh.long) stopRec(); sh=null; } });
+document.addEventListener('keydown',e=>{ if(e.key==='AudioVolumeUp'||e.key==='AudioVolumeDown') fire(); });
+
+/* ---------- gallery ---------- */
+let viewing=null;
+async function loadItems(){ items=(await dbAll('items')).sort((a,b)=>b.ts-a.ts); paintGalThumb(); }
+function renderGallery(){
+  $('#gTitle').textContent='Gallery ('+items.length+')';
+  if(!items.length){ $('#gGrid').innerHTML='<div id="gEmpty">Abhi koi photo ya video nahi hai.<br>Capture karte hi yahan dikhegi.</div>'; return; }
+  $('#gGrid').innerHTML=items.map(it=>{
+    const m=it.type==='photo'?`<img src="${urlOf(it)}" alt="" loading="lazy">`:`<video src="${urlOf(it)}#t=0.1" muted playsinline preload="metadata"></video>`;
+    const tag=it.live?'LIVE':it.lapse?'LAPSE':it.slow?'SLO-MO':it.type==='video'?'VIDEO':'';
+    return `<div class="gi" data-id="${it.id}">${m}${tag?`<span class="bd">${tag}</span>`:''}</div>`;
+  }).join('');
+}
+$('#galBtn').onclick=()=>{ closeAll(); renderGallery(); $('#gallery').classList.add('on'); };
+$('#gClose').onclick=()=>$('#gallery').classList.remove('on');
+$('#gGrid').addEventListener('click',e=>{ const gi=e.target.closest('.gi'); if(!gi) return; openViewer(items.find(i=>String(i.id)===gi.dataset.id)); });
+function openViewer(it){
+  if(!it) return; viewing=it; const m=$('#vMedia'); const tag=$('#vTag');
+  if(it.type==='photo'){
+    m.innerHTML=`<img src="${urlOf(it)}" alt="">`; tag.hidden=!it.live; tag.textContent='LIVE  Daba ke rakho';
+    if(it.live){
+      const img=m.firstChild; let v=null;
+      const start=()=>{ if(v) return; v=document.createElement('video'); v.src=urlOf(it,'clip'); v.muted=true; v.playsInline=true; v.autoplay=true; v.loop=true; m.replaceChildren(v); v.play().catch(()=>{}); };
+      const end=()=>{ if(!v) return; v.remove(); v=null; m.replaceChildren(img); };
+      m.onpointerdown=start; m.onpointerup=end; m.onpointercancel=end; m.onpointerleave=end;
+    } else { m.onpointerdown=m.onpointerup=m.onpointercancel=m.onpointerleave=null; }
+  } else {
+    m.onpointerdown=m.onpointerup=m.onpointercancel=m.onpointerleave=null;
+    m.innerHTML=`<video src="${urlOf(it)}" controls autoplay playsinline loop></video>`; const v=m.firstChild;
+    if(it.slow){ v.addEventListener('loadedmetadata',()=>{ v.playbackRate=1/it.slow; },{once:true}); v.defaultPlaybackRate=1/it.slow; }
+    tag.hidden=!(it.slow||it.lapse); tag.textContent=it.slow?'SLO-MO '+(1/it.slow).toFixed(2)+'x':'TIME-LAPSE';
+  }
+  $('#viewer').classList.add('on');
+}
+function closeViewer(){ $('#viewer').classList.remove('on'); $('#vMedia').replaceChildren(); viewing=null; }
+$('#vTop').onclick=closeViewer;
+function fname(it){ const d=new Date(it.ts); const p=n=>String(n).padStart(2,'0'); const ext=it.type==='photo'?'jpg':(it.blob.type.includes('mp4')?'mp4':'webm');
+  return `Lumo_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`; }
+$('#vSave').onclick=()=>{ if(!viewing) return; const a=document.createElement('a'); a.href=urlOf(viewing); a.download=fname(viewing); document.body.appendChild(a); a.click(); a.remove(); toast('Download shuru, phone ki Downloads me milegi'); };
+$('#vShare').onclick=async()=>{ if(!viewing) return; try{ const f=new File([viewing.blob],fname(viewing),{type:viewing.blob.type}); if(navigator.canShare&&navigator.canShare({files:[f]})) await navigator.share({files:[f]}); else toast('Share is browser me nahi chalta, Download dabao'); }catch(e){} };
+$('#vDel').onclick=async()=>{ if(!viewing) return; const it=viewing; await dbDel('items',it.id); items=items.filter(x=>x.id!==it.id); closeViewer(); renderGallery(); paintGalThumb(); toast('Delete ho gaya'); };
+
+/* ---------- boot ---------- */
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){ if(S.recording) stopRec(); stopLiveBuffer(); stopCamera(); } else startCamera(); });
+document.addEventListener('contextmenu',e=>e.preventDefault());
+(async function boot(){
+  paintStaticIcons(); paintTop(); placeHl(); layout(); paintLens(); $('#gridLines').hidden=!S.grid; if(S.level) setLevel(true);
+  try{ await idb(); await loadItems(); }catch(e){ toast('Gallery storage chalu nahi hui'); }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ showErr({name:'SecurityError'}); return; }
+  await startCamera();
+})();
+
+/* liquid-glass touch highlight + shutter ripple */
+document.addEventListener('pointerdown',e=>{const g=e.target.closest('.glass');if(g){const r=g.getBoundingClientRect();g.style.setProperty('--mx',(e.clientX-r.left)+'px');g.style.setProperty('--my',(e.clientY-r.top)+'px');g.classList.add('touch');const off=()=>{g.classList.remove('touch');removeEventListener('pointerup',off);removeEventListener('pointercancel',off)};addEventListener('pointerup',off);addEventListener('pointercancel',off)}
+  const sh=e.target.closest('#shutter');if(sh){const r=document.createElement('i');r.className='ring';sh.appendChild(r);setTimeout(()=>r.remove(),600)}},true);
+document.addEventListener('pointermove',e=>{const g=document.querySelector('.glass.touch');if(g){const r=g.getBoundingClientRect();g.style.setProperty('--mx',(e.clientX-r.left)+'px');g.style.setProperty('--my',(e.clientY-r.top)+'px')}},{passive:true});
+
+/* animated show/hide for panels: closing now shrinks instead of vanishing */
+['#depthPanel','#lightPanel','#posePanel','#qChips','#subStrip','#ctrl','#ctrlSub','#depthChip'].forEach(sel=>{
+  const el=document.querySelector(sel); if(!el) return; let h=el.hasAttribute('hidden'),t=0;
+  Object.defineProperty(el,'hidden',{configurable:true,get(){return h},set(v){
+    v=!!v; clearTimeout(t); if(v===h&&!el.classList.contains('pop-out')) return; h=v;
+    if(v){ el.classList.remove('pop-in'); el.classList.add('pop-out'); t=setTimeout(()=>{ el.setAttribute('hidden',''); el.classList.remove('pop-out'); },270); }
+    else { el.classList.remove('pop-out'); el.removeAttribute('hidden'); el.classList.remove('pop-in'); void el.offsetWidth; el.classList.add('pop-in'); }
+  }});
+});
+
+if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
+
+/* ===== Lumo v2: night, pro, document, more settings, histogram, QR, watermark ===== */
+try{Object.assign(S,{hdr:0,hist:0,qr:0,wm:0,wmText:'Shot on Lumo',wb:0,codec:'auto',lg:1},JSON.parse(localStorage.getItem('lumo2')||'{}'))}catch(e){}
+const saveX=()=>{try{localStorage.setItem('lumo2',JSON.stringify({hdr:S.hdr,hist:S.hist,qr:S.qr,wm:S.wm,wmText:S.wmText,wb:S.wb,codec:S.codec,lg:S.lg}))}catch(e){}};
+function vmime(){ if(S.codec==='h265'){ const m=['video/mp4;codecs=hvc1','video/mp4;codecs=hevc'].find(x=>MediaRecorder.isTypeSupported(x)); if(m) return m; toast('H.265 is phone me supported nahi, H.264 use hoga'); } return VMIME; }
+async function nightShoot(){
+  const N=8,w=vid.videoWidth,h=vid.videoHeight,cv=mkCanvas(w,h),cx=cv.getContext('2d',{willReadFrequently:true}),acc=new Float32Array(w*h*3),sh=$('#shutter');
+  sh.classList.add('night'); toast('Night: phone ko 3 second sthir pakdo');
+  for(let i=0;i<N;i++){ cx.drawImage(vid,0,0,w,h); const d=cx.getImageData(0,0,w,h).data; for(let j=0,k=0;j<d.length;j+=4,k+=3){acc[k]+=d[j];acc[k+1]+=d[j+1];acc[k+2]+=d[j+2]} sh.style.setProperty('--np',(i+1)/N); await new Promise(r=>setTimeout(r,330)); }
+  const o=cx.createImageData(w,h),od=o.data;
+  for(let j=0,k=0;j<od.length;j+=4,k+=3){ for(let c=0;c<3;c++){ od[j+c]=Math.min(255,Math.pow(acc[k+c]/N/255,.58)*275) } od[j+3]=255 }
+  cx.putImageData(o,0,0); sh.classList.remove('night'); sh.style.setProperty('--np',0);
+  return renderPhoto(await createImageBitmap(cv),{portrait:false});
+}
+async function stamp(b){ const bm=await createImageBitmap(b),c=mkCanvas(bm.width,bm.height),x=c.getContext('2d'); x.drawImage(bm,0,0); const f=Math.round(c.height*.022); x.font='600 '+f+'px -apple-system,Roboto,sans-serif'; x.fillStyle='rgba(255,255,255,.92)'; x.shadowColor='rgba(0,0,0,.55)'; x.shadowBlur=f*.4; x.textBaseline='bottom'; x.fillText((S.wmText||'Shot on Lumo')+'  |  '+new Date().toLocaleDateString(),f,c.height-f); return new Promise(r=>c.toBlob(r,'image/jpeg',.95)); }
+/* Pro panel */
+const proP=document.createElement('div'); proP.id='proPanel'; proP.className='panel glass'; proP.hidden=true; $('#lensWrap').before(proP);
+const PRO=[['ISO','iso',v=>Math.round(v)],['SHUTTER','exposureTime',v=>'1/'+Math.round(1e4/v)],['WB','colorTemperature',v=>Math.round(v)+'K'],['FOCUS','focusDistance',v=>(+v).toFixed(2)]];
+function buildPro(){ proP.innerHTML=PRO.map(([l,k])=>{const c=caps&&caps[k]; return c&&c.max!=null?`<div class="row"><span class="lab">${l}</span><input class="sl" type="range" data-k="${k}" min="${c.min}" max="${c.max}" step="${c.step||(c.max-c.min)/100}" value="${c.min}"><span class="val" data-v="${k}">AUTO</span></div>`:`<div class="row"><span class="lab">${l}</span><span class="val" style="flex:1;text-align:right">Is phone me nahi</span></div>`}).join('')+'<div class="row"><button class="chip" id="proAuto">Auto</button></div>'; }
+proP.addEventListener('input',e=>{ const r=e.target,k=r.dataset.k; if(!k||!track) return; const v=+r.value,a={[k]:v}; if(k==='exposureTime'||k==='iso') a.exposureMode='manual'; if(k==='colorTemperature') a.whiteBalanceMode='manual'; if(k==='focusDistance') a.focusMode='manual'; track.applyConstraints({advanced:[a]}).catch(()=>{}); proP.querySelector('[data-v="'+k+'"]').textContent=PRO.find(x=>x[1]===k)[2](v); });
+proP.addEventListener('click',e=>{ if(e.target.id==='proAuto'){ track&&track.applyConstraints({advanced:[{exposureMode:'continuous',whiteBalanceMode:'continuous',focusMode:'continuous'}]}).catch(()=>{}); buildPro(); } });
+function syncExtra(){ const pro=S.mode==='photo'&&S.sub.photo==='pro'; if(pro){ buildPro(); proP.hidden=false; proP.classList.remove('pop-in'); void proP.offsetWidth; proP.classList.add('pop-in'); } else proP.hidden=true; }
+/* more settings */
+const TG=[['#tHdr','hdr'],['#tHist','hist'],['#tQr','qr'],['#tWm','wm'],['#tWb','wb'],['#tLg','lg']];
+function paintMore(){ TG.forEach(([id,k])=>$(id).classList.toggle('on',!!S[k])); [...$('#sCodec').children].forEach(b=>b.classList.toggle('on',b.dataset.v===S.codec)); $('#wmText').value=S.wmText||''; }
+TG.forEach(([id,k])=>$(id).onclick=()=>{ S[k]=S[k]?0:1; saveX(); paintMore(); if(k==='hdr') applyFilterPreview(); if(k==='lg') document.documentElement.classList.toggle('lgsoft',!S.lg); if(k==='hist') histRun(); if(k==='wb'&&track) track.applyConstraints({advanced:[{whiteBalanceMode:S.wb?'manual':'continuous'}]}).catch(()=>toast('Is phone me white balance lock nahi hota')); });
+$('#sCodec').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; S.codec=b.dataset.v; saveX(); paintMore(); };
+$('#wmText').oninput=e=>{ S.wmText=e.target.value; saveX(); };
+document.documentElement.classList.toggle('lgsoft',!S.lg);
+/* histogram + QR */
+const hc=document.createElement('canvas'); hc.id='hist'; hc.className='glass'; hc.width=96; hc.height=46; document.body.appendChild(hc);
+const hTc=mkCanvas(64,36),hTx=hTc.getContext('2d',{willReadFrequently:true}),hx=hc.getContext('2d'); let hTimer=0;
+function histRun(){ clearInterval(hTimer); hc.style.display=S.hist?'block':'none'; if(!S.hist) return; hTimer=setInterval(()=>{ if(!vid.videoWidth) return; hTx.drawImage(vid,0,0,64,36); const d=hTx.getImageData(0,0,64,36).data,b=new Array(32).fill(0); for(let i=0;i<d.length;i+=4) b[Math.min(31,((d[i]*.3+d[i+1]*.59+d[i+2]*.11)/8)|0)]++; const m=Math.max(...b); hx.clearRect(0,0,96,46); hx.fillStyle='rgba(255,255,255,.85)'; b.forEach((v,i)=>{ const hh=Math.pow(v/m,.6)*38; hx.fillRect(i*3,44-hh,2,hh); }); },350); }
+if(S.hist) histRun();
+if('BarcodeDetector' in window){ const bd=new BarcodeDetector({formats:['qr_code']}); let last=''; setInterval(async()=>{ if(!S.qr||!vid.videoWidth||S.mode!=='photo') return; try{ const r=await bd.detect(vid); if(r[0]&&r[0].rawValue!==last){ last=r[0].rawValue; toast('QR: '+last.slice(0,60)); const u=last; $('#toast').onclick=()=>{ if(/^https?:/.test(u)) window.open(u,'_blank'); else navigator.clipboard&&navigator.clipboard.writeText(u); }; } else if(!r[0]) last=''; }catch(e){} },900); }
+/* jelly release for glass */
+let lg=null; addEventListener('pointerdown',e=>{ lg=e.target.closest&&e.target.closest('.glass'); },true);
+addEventListener('pointerup',()=>{ if(lg){ const g=lg; g.classList.remove('jelly'); void g.offsetWidth; g.classList.add('jelly'); setTimeout(()=>g.classList.remove('jelly'),650); lg=null; } },true);
+</script>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="wtr" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.013 0.02" numOctaves="2" seed="4" result="n"/><feGaussianBlur in="n" stdDeviation="1.2" result="nb"/><feDisplacementMap in="SourceGraphic" in2="nb" scale="22" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+</body>
+</html>
