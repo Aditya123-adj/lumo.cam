@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.aditya123_adj.twa",
+        "sha256_cert_fingerprints": ["27:F4:21:D7:3D:5D:FF:9E:C8:B0:BD:37:5D:E9:5D:91:F9:BC:07:1C:DB:74:EE:9D:DD:78:B3:B1:B1:5C:BB:1B"]
+      }
+    }]
